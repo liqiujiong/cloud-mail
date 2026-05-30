@@ -299,6 +299,11 @@ async function ingestRawMail(payload) {
 
 const server = http.createServer(async (req, res) => {
 	const url = new URL(req.url, `http://${req.headers.host}`);
+	if (req.method === 'GET' && url.pathname === '/healthz') {
+		json(res, 200, { success: true });
+		return;
+	}
+
 	if (req.method !== 'POST' || !['/sync/test', '/sync/fetch'].includes(url.pathname)) {
 		json(res, 404, { success: false, error: 'Not Found' });
 		return;
