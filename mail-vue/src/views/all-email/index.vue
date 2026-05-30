@@ -66,7 +66,6 @@
             reserve-keyword
             :remote-method="loadExternalAccounts"
             :loading="externalAccountLoading"
-            @visible-change="visible => visible && loadExternalAccounts('')"
             @change="search"
         >
           <el-option
@@ -159,6 +158,8 @@ const clearLoading = ref(false)
 const externalAccounts = ref([])
 const externalAccountLoading = ref(false)
 const externalSyncing = ref(false)
+let externalAccountSearchTimer = null
+let lastExternalAccountKeyword = ''
 
 onMounted(() => {
   loadExternalAccounts()
@@ -331,27 +332,43 @@ function sourceChange() {
 }
 
 function loadExternalAccounts(keyword = '') {
-  externalAccountLoading.value = true
-  externalAccountList({page: 1, size: 20, keyword}).then(data => {
-    externalAccounts.value = data?.list || []
-  }).catch(() => {
-    externalAccounts.value = []
-  }).finally(() => {
-    externalAccountLoading.value = false
-  })
+  if (externalAccountSearchTimer) {
+    clearTimeout(externalAccountSearchTimer)
+  }
+  externalAccountSearchTimer = setTimeout(() => {
+    const searchKeyword = String(keyword || '').trim()
+    if (searchKeyword === lastExternalAccountKeyword && externalAccounts.value.length > 0) {
+      return
+    }
+    lastExternalAccountKeyword = searchKeyword
+    externalAccountLoading.value = true
+    externalAccountList({page: 1, size: 20, keyword: searchKeyword}).then(data => {
+      externalAccounts.value = data?.list || []
+    }).catch(() => {
+      externalAccounts.value = []
+    }).finally(() => {
+      externalAccountLoading.value = false
+    })
+  }, 350)
 }
 
-function syncSelectedExternalAccount() {
+async function syncSelectedExternalAccount(silent = false) {
   if (!params.externalAccountId || externalSyncing.value) {
-    return
+    return null
   }
   externalSyncing.value = true
-  externalAccountSync(params.externalAccountId, 5).then(data => {
-    ElMessage({message: `同步完成，新增 ${data?.fetched || 0} 封，跳过 ${data?.skipped || 0} 封`, type: 'success', plain: true})
-    search()
-  }).finally(() => {
+  try {
+    const data = await externalAccountSync(params.externalAccountId, 5)
+    if (!silent) {
+      ElMessage({message: `同步完成，新增 ${data?.fetched || 0} 封，跳过 ${data?.skipped || 0} 封`, type: 'success', plain: true})
+    }
+    if (!silent || data?.fetched > 0) {
+      search()
+    }
+    return data
+  } finally {
     externalSyncing.value = false
-  })
+  }
 }
 
 function jumpContent(email) {
@@ -397,6 +414,11 @@ async function latest() {
     try {
 
       const curTimeSort = params.timeSort
+      if (params.externalAccountId) {
+        await syncSelectedExternalAccount(true)
+        continue
+      }
+
       let list = await allEmailLatest(latestId, {
         type: params.type,
         sourceType: params.sourceType,

@@ -126,7 +126,7 @@
         </el-form-item>
         <template v-if="importForm.protocol === 'IMAP'">
           <el-form-item label="IMAP Host">
-            <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="imap.aol.com"/>
+            <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="留空则按邮箱域名自动生成"/>
           </el-form-item>
           <el-form-item label="IMAP Port">
             <el-input-number v-model="importForm.imapPort" :min="1" :max="65535"/>
@@ -138,7 +138,7 @@
         </template>
         <template v-else>
           <el-form-item label="POP3 Host">
-            <el-input v-model="importForm.popHost" autocomplete="off" placeholder="pop.aol.com"/>
+            <el-input v-model="importForm.popHost" autocomplete="off" placeholder="留空则按邮箱域名自动生成"/>
           </el-form-item>
           <el-form-item label="POP3 Port">
             <el-input-number v-model="importForm.popPort" :min="1" :max="65535"/>
@@ -172,7 +172,7 @@
 
 <script setup>
 import {Icon} from "@iconify/vue";
-import {reactive, ref} from "vue";
+import {reactive, ref, watch} from "vue";
 import {
   externalAccountAdd,
   externalAccountDelete,
@@ -203,6 +203,9 @@ const importForm = reactive(defaultImportForm())
 
 loadList()
 
+watch(() => form.email, fillServerHostByEmail)
+watch(() => form.protocol, fillServerHostByEmail)
+
 function defaultForm() {
   return {
     externalAccountId: null,
@@ -228,11 +231,11 @@ function defaultForm() {
 function defaultImportForm() {
   return {
     protocol: 'IMAP',
-    imapHost: 'imap.aol.com',
+    imapHost: '',
     imapPort: 993,
     imapSecure: true,
     imapMailbox: 'INBOX',
-    popHost: 'pop.aol.com',
+    popHost: '',
     popPort: 995,
     popSecure: true,
     content: ''
@@ -279,6 +282,24 @@ function openEdit(row) {
     proxyPassword: ''
   })
   formShow.value = true
+}
+
+function getEmailDomain(email) {
+  const domain = String(email || '').trim().split('@')[1]
+  return domain && domain.includes('.') ? domain.toLowerCase() : ''
+}
+
+function fillServerHostByEmail() {
+  const domain = getEmailDomain(form.email)
+  if (!domain) {
+    return
+  }
+  if (form.protocol === 'IMAP' && !form.imapHost.trim()) {
+    form.imapHost = `imap.${domain}`
+  }
+  if (form.protocol === 'POP3' && !form.popHost.trim()) {
+    form.popHost = `pop.${domain}`
+  }
 }
 
 function saveForm() {
@@ -352,16 +373,17 @@ function parseProxy(value) {
 }
 
 function buildImportPayload(row) {
+  const domain = getEmailDomain(row.email)
   return {
     ...defaultForm(),
     name: row.email,
     email: row.email,
     protocol: importForm.protocol,
-    imapHost: importForm.imapHost,
+    imapHost: importForm.imapHost.trim() || (domain ? `imap.${domain}` : ''),
     imapPort: importForm.imapPort,
     imapSecure: importForm.imapSecure,
     imapMailbox: importForm.imapMailbox,
-    popHost: importForm.popHost,
+    popHost: importForm.popHost.trim() || (domain ? `pop.${domain}` : ''),
     popPort: importForm.popPort,
     popSecure: importForm.popSecure,
     username: row.email,
