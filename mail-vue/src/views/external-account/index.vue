@@ -118,7 +118,7 @@
           type="info"
           show-icon
           :closable="false"
-          title="每行一个账号，格式：邮箱----密码；也支持：邮箱,密码。服务器、协议和代理配置会应用到所有账号。"
+          title="每行一个账号，格式：邮箱----密码----SOCKS5代理。代理格式：用户名:密码@host:端口；代理可留空。"
       />
       <el-form label-width="110px" class="account-form import-form">
         <el-form-item label="协议">
@@ -145,25 +145,12 @@
             <el-checkbox v-model="importForm.popSecure" class="secure-check">SSL</el-checkbox>
           </el-form-item>
         </template>
-        <el-divider>SOCKS5 代理</el-divider>
-        <el-form-item label="代理 Host">
-          <el-input v-model="importForm.proxyHost" autocomplete="off"/>
-        </el-form-item>
-        <el-form-item label="代理 Port">
-          <el-input-number v-model="importForm.proxyPort" :min="0" :max="65535"/>
-        </el-form-item>
-        <el-form-item label="代理用户名">
-          <el-input v-model="importForm.proxyUsername" autocomplete="off"/>
-        </el-form-item>
-        <el-form-item label="代理密码">
-          <el-input v-model="importForm.proxyPassword" type="password" show-password autocomplete="new-password"/>
-        </el-form-item>
         <el-form-item label="账号列表">
           <el-input
               v-model="importForm.content"
               type="textarea"
               :rows="8"
-              placeholder="rrrfctege@aol.com----应用专用密码&#10;user2@aol.com----应用专用密码"
+              placeholder="rrrfctege@aol.com----应用专用密码----4366847-4acf873f:eed4cadc-global-74672633-5m@gate.kookeey.info:1000&#10;user2@aol.com----应用专用密码"
           />
         </el-form-item>
         <el-form-item v-if="importResult.length" label="导入结果">
@@ -248,10 +235,6 @@ function defaultImportForm() {
     popHost: 'pop.aol.com',
     popPort: 995,
     popSecure: true,
-    proxyHost: '',
-    proxyPort: 0,
-    proxyUsername: '',
-    proxyPassword: '',
     content: ''
   }
 }
@@ -331,13 +314,41 @@ function parseImportRows() {
             : line.split(/,|\t/)
         parts = parts.map(item => item.trim())
         const email = parts[0] || ''
-        const password = parts.slice(1).join('----') || ''
+        const password = parts[1] || ''
+        const proxy = parseProxy(parts[2] || '')
         return {
           index: index + 1,
           email,
-          password
+          password,
+          proxyRaw: parts[2] || '',
+          proxy
         }
       })
+}
+
+function parseProxy(value) {
+  const text = value.trim()
+  if (!text) {
+    return {
+      host: '',
+      port: 0,
+      username: '',
+      password: ''
+    }
+  }
+  const atIndex = text.lastIndexOf('@')
+  const auth = atIndex > -1 ? text.slice(0, atIndex) : ''
+  const hostPort = atIndex > -1 ? text.slice(atIndex + 1) : text
+  const colonIndex = hostPort.lastIndexOf(':')
+  const host = colonIndex > -1 ? hostPort.slice(0, colonIndex) : hostPort
+  const port = colonIndex > -1 ? Number(hostPort.slice(colonIndex + 1)) : 0
+  const authParts = auth.split(':')
+  return {
+    host,
+    port,
+    username: authParts[0] || '',
+    password: authParts.slice(1).join(':') || ''
+  }
 }
 
 function buildImportPayload(row) {
@@ -355,10 +366,10 @@ function buildImportPayload(row) {
     popSecure: importForm.popSecure,
     username: row.email,
     password: row.password,
-    proxyHost: importForm.proxyHost,
-    proxyPort: importForm.proxyPort,
-    proxyUsername: importForm.proxyUsername,
-    proxyPassword: importForm.proxyPassword
+    proxyHost: row.proxy.host,
+    proxyPort: row.proxy.port,
+    proxyUsername: row.proxy.username,
+    proxyPassword: row.proxy.password
   }
 }
 
@@ -372,6 +383,12 @@ async function saveImport() {
   const invalid = rows.find(row => !row.email || !row.password)
   if (invalid) {
     ElMessage({message: `第 ${invalid.index} 行格式错误`, type: 'error', plain: true})
+    return
+  }
+
+  const invalidProxy = rows.find(row => row.proxyRaw && (!row.proxy.host || !row.proxy.port))
+  if (invalidProxy) {
+    ElMessage({message: `第 ${invalidProxy.index} 行代理格式错误`, type: 'error', plain: true})
     return
   }
 
