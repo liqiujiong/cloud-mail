@@ -88,6 +88,7 @@ const zh = {
     sender: '发件人',
     user: '用户',
     searchByContent: '输入内容查询',
+    searchRecipient: '输入收件人查询',
     noRecipient: '无收件人',
     received: '已接收',
     selectEmail: '邮箱',

@@ -21,7 +21,7 @@
       <template #first>
         <el-input
             v-model="searchValue"
-            :placeholder="$t('searchByContent')"
+            :placeholder="$t('searchRecipient')"
             class="search-input"
         >
           <template #prefix>
@@ -35,7 +35,7 @@
                 <el-option key="3" :label="$t('sender')" :value="'name'"/>
                 <el-option key="4" :label="$t('subject')" :value="'subject'"/>
                 <el-option key="1" :label="$t('user')" :value="'user'"/>
-                <el-option key="2" :label="$t('selectEmail')" :value="'account'"/>
+                <el-option key="2" :label="$t('toEmail')" :value="'toEmail'"/>
               </el-select>
               <div class="search-type">
                 <span>{{ selectTitle }}</span>
@@ -147,12 +147,12 @@ const openSelect = () => {
 
 const params = reactive({
   timeSort: 0,
-  type: 'receive',
+  type: 'all',
   userEmail: null,
-  accountEmail: null,
+  toEmail: null,
   name: null,
   subject: null,
-  searchType: 'name',
+  searchType: 'toEmail',
   sourceType: null,
   externalAccountId: null
 })
@@ -185,7 +185,7 @@ function closedClear() {
 
 const selectTitle = computed(() => {
   if (params.searchType === 'user') return t('user')
-  if (params.searchType === 'account') return t('selectEmail')
+  if (params.searchType === 'toEmail') return t('toEmail')
   if (params.searchType === 'name') return t('sender')
   if (params.searchType === 'subject') return t('subject')
 })
@@ -193,10 +193,10 @@ const selectTitle = computed(() => {
 const paramsStar = localStorage.getItem('all-email-params')
 if (paramsStar) {
   const locaParams = JSON.parse(paramsStar)
-  params.type = locaParams.type
+  params.type = locaParams.type === 'receive' ? 'all' : (locaParams.type || 'all')
   params.timeSort = locaParams.timeSort
   params.status = locaParams.status
-  params.searchType = locaParams.searchType
+  params.searchType = locaParams.searchType === 'account' ? 'toEmail' : (locaParams.searchType || 'toEmail')
 }
 
 watch(() => params, () => {
@@ -254,12 +254,12 @@ function rightSearch(type, value) {
 function refreshBefore() {
   searchValue.value = null
   params.timeSort = 0
-  params.type = 'receive'
+  params.type = 'all'
   params.userEmail = null
-  params.accountEmail = null
+  params.toEmail = null
   params.name = null
   params.subject = null
-  params.searchType = 'name'
+  params.searchType = 'toEmail'
   params.sourceType = null
   params.externalAccountId = null
 }
@@ -267,7 +267,7 @@ function refreshBefore() {
 function search() {
 
   params.userEmail = null
-  params.accountEmail = null
+  params.toEmail = null
   params.name = null
   params.subject = null
 
@@ -275,8 +275,8 @@ function search() {
     params.userEmail = searchValue.value
   }
 
-  if (params.searchType === 'account') {
-    params.accountEmail = searchValue.value
+  if (params.searchType === 'toEmail') {
+    params.toEmail = searchValue.value
   }
 
   if (params.searchType === 'name') {
@@ -350,7 +350,7 @@ async function latest() {
     }
 
 
-    if (params.type !== 'receive') {
+    if (!['all', 'receive', 'noone'].includes(params.type)) {
       continue
     }
 
@@ -358,6 +358,7 @@ async function latest() {
 
       const curTimeSort = params.timeSort
       let list = await allEmailLatest(latestId, {
+        type: params.type,
         sourceType: params.sourceType,
         externalAccountId: params.externalAccountId
       })
@@ -366,7 +367,7 @@ async function latest() {
         continue
       }
 
-      if (params.type !== 'receive') {
+      if (!['all', 'receive', 'noone'].includes(params.type)) {
         continue
       }
 

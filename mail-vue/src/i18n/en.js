@@ -88,6 +88,7 @@ const en = {
     sender: 'Sender',
     user: 'User',
     searchByContent: 'Enter text to search',
+    searchRecipient: 'Search recipient',
     noRecipient: 'No recipient',
     received: 'Received',
     selectEmail: 'Email',

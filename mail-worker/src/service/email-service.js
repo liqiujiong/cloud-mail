@@ -785,7 +785,7 @@ const emailService = {
 
 	async allList(c, params) {
 
-		let { emailId, size, name, subject, accountEmail, userEmail, type, timeSort, sourceType, externalAccountId } = params;
+		let { emailId, size, name, subject, accountEmail, toEmail, userEmail, type, timeSort, sourceType, externalAccountId } = params;
 
 		size = Number(size);
 
@@ -836,6 +836,10 @@ const emailService = {
 					sql`${email.sendEmail} COLLATE NOCASE LIKE ${'%'+ accountEmail + '%'}`,
 				)
 			)
+		}
+
+		if (toEmail) {
+			conditions.push(sql`${email.toEmail} COLLATE NOCASE LIKE ${'%'+ toEmail + '%'}`);
 		}
 
 		if (name) {
@@ -906,7 +910,7 @@ const emailService = {
 
 	async allEmailLatest(c, params) {
 
-		let { emailId, sourceType, externalAccountId } = params;
+		let { emailId, type, sourceType, externalAccountId } = params;
 		externalAccountId = Number(externalAccountId || 0);
 
 		const conditions = [
@@ -914,6 +918,10 @@ const emailService = {
 			eq(email.type, emailConst.type.RECEIVE),
 			ne(email.status, emailConst.status.SAVING)
 		];
+
+		if (type === 'noone') {
+			conditions.push(eq(email.status, emailConst.status.NOONE));
+		}
 
 		if (sourceType) {
 			conditions.push(eq(email.sourceType, sourceType));
