@@ -67,12 +67,16 @@ const requirePerms = [
 	'/externalAccount/delete',
 	'/externalAccount/test',
 	'/externalAccount/sync',
+	'/externalAccount/favertive',
+	'/externalAccount/export',
 	'/external-account/list',
 	'/external-account/add',
 	'/external-account/update',
 	'/external-account/delete',
 	'/external-account/test',
-	'/external-account/sync'
+	'/external-account/sync',
+	'/external-account/favertive',
+	'/external-account/export'
 ];
 
 const premKey = {
@@ -101,9 +105,9 @@ const premKey = {
 	'reg-key:add': ['/regKey/add'],
 	'reg-key:query': ['/regKey/list','/regKey/history'],
 	'reg-key:delete': ['/regKey/delete','/regKey/clearNotUse'],
-	'external-account:query': ['/externalAccount/list','/external-account/list'],
+	'external-account:query': ['/externalAccount/list','/external-account/list','/externalAccount/export','/external-account/export'],
 	'external-account:add': ['/externalAccount/add','/external-account/add'],
-	'external-account:set': ['/externalAccount/update','/external-account/update'],
+	'external-account:set': ['/externalAccount/update','/external-account/update','/externalAccount/favertive','/external-account/favertive'],
 	'external-account:delete': ['/externalAccount/delete','/external-account/delete'],
 	'external-account:test': ['/externalAccount/test','/external-account/test'],
 	'external-account:sync': ['/externalAccount/sync','/external-account/sync'],

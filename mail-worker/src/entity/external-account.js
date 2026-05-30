@@ -26,6 +26,7 @@ export const externalAccount = sqliteTable('external_account', {
 	lastSyncResult: text('last_sync_result').default('').notNull(),
 	lastErrorCode: text('last_error_code').default('').notNull(),
 	lastError: text('last_error').default('').notNull(),
+	isFavertive: integer('is_favertive').default(0).notNull(),
 	syncing: integer('syncing').default(0).notNull(),
 	syncLockTime: text('sync_lock_time'),
 	createTime: text('create_time').default(sql`CURRENT_TIMESTAMP`).notNull(),

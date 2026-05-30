@@ -3,11 +3,29 @@
     <div class="header-actions">
       <Icon v-perm="'external-account:add'" class="icon" icon="ion:add-outline" width="23" height="23" @click="openAdd"/>
       <Icon v-perm="'external-account:add'" class="icon" icon="solar:import-outline" width="21" height="21" @click="openImport"/>
+      <Icon v-perm="'external-account:query'" class="icon" :class="{disabled: selectedAccounts.length === 0}" icon="ion:download-outline" width="20" height="20" @click="exportSelected"/>
       <Icon class="icon" icon="ion:reload" width="18" height="18" @click="loadList"/>
+      <el-switch
+          v-model="favertiveOnly"
+          active-text="只看收藏"
+          inactive-text="全部"
+          @change="loadList"
+      />
     </div>
     <el-scrollbar class="table-scrollbar">
-      <el-table :data="accounts" v-loading="loading" style="height: 100%" :empty-text="''">
-        <el-table-column width="10"/>
+      <el-table :data="accounts" v-loading="loading" style="height: 100%" :empty-text="''" @selection-change="selectedAccounts = $event">
+        <el-table-column type="selection" width="45"/>
+        <el-table-column label="收藏" width="70">
+          <template #default="props">
+            <Icon
+                class="star-icon"
+                :icon="props.row.isFavertive ? 'fluent-color:star-16' : 'solar:star-line-duotone'"
+                width="19"
+                height="19"
+                @click="toggleFavertive(props.row)"
+            />
+          </template>
+        </el-table-column>
         <el-table-column label="名称" prop="name" min-width="140"/>
         <el-table-column label="邮箱" prop="email" min-width="210"/>
         <el-table-column label="协议" width="90">
@@ -176,6 +194,8 @@ import {reactive, ref, watch} from "vue";
 import {
   externalAccountAdd,
   externalAccountDelete,
+  externalAccountExport,
+  externalAccountFavertive,
   externalAccountList,
   externalAccountSync,
   externalAccountTest,
@@ -192,7 +212,9 @@ const importSaving = ref(false)
 const testSaving = ref(false)
 const testingId = ref(0)
 const syncingId = ref(0)
+const favertiveOnly = ref(false)
 const importResult = ref([])
+const selectedAccounts = ref([])
 const importProgress = reactive({
   done: 0,
   total: 0
@@ -255,8 +277,9 @@ function resetImportForm() {
 
 function loadList() {
   loading.value = true
-  externalAccountList().then(data => {
+  externalAccountList({isFavertive: favertiveOnly.value ? 1 : undefined}).then(data => {
     accounts.value = data || []
+    selectedAccounts.value = []
   }).finally(() => {
     loading.value = false
   })
@@ -465,6 +488,40 @@ function syncAccount(row) {
   })
 }
 
+function toggleFavertive(row) {
+  const oldValue = row.isFavertive ? 1 : 0
+  const nextValue = oldValue ? 0 : 1
+  row.isFavertive = nextValue
+  externalAccountFavertive(row.externalAccountId, nextValue).then(() => {
+    if (favertiveOnly.value && !nextValue) {
+      loadList()
+    }
+  }).catch(() => {
+    row.isFavertive = oldValue
+  })
+}
+
+async function exportSelected() {
+  if (selectedAccounts.value.length === 0) {
+    ElMessage({message: '请先勾选要导出的账号', type: 'warning', plain: true})
+    return
+  }
+  const ids = selectedAccounts.value.map(item => item.externalAccountId)
+  const data = await externalAccountExport(ids)
+  const content = data?.content || ''
+  if (!content) {
+    ElMessage({message: '没有可导出的账号', type: 'warning', plain: true})
+    return
+  }
+  const blob = new Blob([content], {type: 'text/plain;charset=utf-8'})
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `external-accounts-${Date.now()}.txt`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function deleteAccount(row) {
   ElMessageBox.confirm(`确认删除 ${row.email}？不会删除远程邮箱中的邮件。`, {
     confirmButtonText: '确认',
@@ -517,7 +574,15 @@ function statusText(status) {
   box-shadow: var(--header-actions-border);
   .icon {
     cursor: pointer;
+    &.disabled {
+      opacity: 0.35;
+      pointer-events: none;
+    }
   }
+}
+
+.star-icon {
+  cursor: pointer;
 }
 
 .table-scrollbar {

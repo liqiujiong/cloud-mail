@@ -1,7 +1,7 @@
 import orm from '../entity/orm';
 import externalAccount from '../entity/external-account';
 import externalMailUid from '../entity/external-mail-uid';
-import { and, count, desc, eq, ne, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { emailConst, externalAccountConst, isDel } from '../const/entity-const';
 import BizError from '../error/biz-error';
 import secretCryptoUtils from '../utils/secret-crypto-utils';
@@ -131,6 +131,9 @@ const externalAccountService = {
 		if (params.protocol) {
 			conditions.push(eq(externalAccount.protocol, normalizeProtocol(params.protocol)));
 		}
+		if (Number(params.isFavertive || params.is_favertive || 0) === 1) {
+			conditions.push(eq(externalAccount.isFavertive, 1));
+		}
 		if (params.keyword) {
 			const keyword = `%${String(params.keyword).trim()}%`;
 			conditions.push(or(
@@ -250,8 +253,55 @@ const externalAccountService = {
 			proxyPort: Number(params.proxyPort || 0),
 			proxyUsername: params.proxyUsername || '',
 			proxyPasswordEncrypted: params.proxyPassword ? await secretCryptoUtils.encrypt(c, params.proxyPassword) : (oldRow?.proxyPasswordEncrypted || ''),
+			isFavertive: Number(params.isFavertive ?? params.is_favertive ?? oldRow?.isFavertive ?? 0) ? 1 : 0,
 			status: params.status || oldRow?.status || externalAccountConst.status.NORMAL
 		};
+	},
+
+	async setFavertive(c, params, userId) {
+		const row = await this.detail(c, params.externalAccountId, userId);
+		const isFavertive = Number(params.isFavertive ?? params.is_favertive ?? 0) ? 1 : 0;
+		await orm(c).update(externalAccount).set({
+			isFavertive,
+			updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+		}).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
+		return sanitize({
+			...row,
+			isFavertive
+		});
+	},
+
+	async export(c, params, userId) {
+		const ids = Array.isArray(params.externalAccountIds) ? params.externalAccountIds : [];
+		const accountIds = ids.map(id => Number(id)).filter(Boolean);
+		if (accountIds.length === 0) {
+			return { content: '' };
+		}
+		const userRow = c.get('user');
+		const conditions = [
+			eq(externalAccount.isDel, isDel.NORMAL),
+			inArray(externalAccount.externalAccountId, accountIds)
+		];
+		if (userRow.email !== c.env.admin) {
+			conditions.push(eq(externalAccount.userId, userId));
+		}
+		const rows = await orm(c).select()
+			.from(externalAccount)
+			.where(and(...conditions))
+			.orderBy(desc(externalAccount.externalAccountId))
+			.all();
+		const lines = [];
+		for (const row of rows) {
+			const password = await secretCryptoUtils.decrypt(c, row.passwordEncrypted);
+			const proxyPassword = await secretCryptoUtils.decrypt(c, row.proxyPasswordEncrypted);
+			let proxy = '';
+			if (row.proxyHost) {
+				const auth = row.proxyUsername ? `${row.proxyUsername}:${proxyPassword}@` : '';
+				proxy = `${auth}${row.proxyHost}:${row.proxyPort || 0}`;
+			}
+			lines.push([row.email, password, proxy].join('----'));
+		}
+		return { content: lines.join('\n') };
 	},
 
 	async delete(c, params, userId) {

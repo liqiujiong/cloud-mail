@@ -62,6 +62,7 @@ const dbInit = {
 				last_sync_result TEXT NOT NULL DEFAULT '',
 				last_error_code TEXT NOT NULL DEFAULT '',
 				last_error TEXT NOT NULL DEFAULT '',
+				is_favertive INTEGER NOT NULL DEFAULT 0,
 				syncing INTEGER NOT NULL DEFAULT 0,
 				sync_lock_time DATETIME,
 				create_time DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -88,6 +89,7 @@ const dbInit = {
 			`ALTER TABLE email ADD COLUMN external_uid TEXT NOT NULL DEFAULT '';`,
 			`ALTER TABLE email ADD COLUMN external_mailbox TEXT NOT NULL DEFAULT '';`,
 			`ALTER TABLE email ADD COLUMN sync_time DATETIME;`,
+			`ALTER TABLE external_account ADD COLUMN is_favertive INTEGER NOT NULL DEFAULT 0;`,
 			`ALTER TABLE role ADD COLUMN external_account_count INTEGER;`
 		];
 

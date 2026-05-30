@@ -78,6 +78,14 @@
         <Icon
             v-if="params.externalAccountId"
             class="icon"
+            :icon="selectedExternalAccount?.isFavertive ? 'fluent-color:star-16' : 'solar:star-line-duotone'"
+            width="20"
+            height="20"
+            @click="toggleSelectedExternalAccountFavertive"
+        />
+        <Icon
+            v-if="params.externalAccountId"
+            class="icon"
             :class="{disabled: externalSyncing}"
             icon="ion:sync-outline"
             width="21"
@@ -138,7 +146,7 @@ import {toUtc} from "@/utils/day.js";
 import {sleep} from "@/utils/time-utils.js";
 import {useSettingStore} from "@/store/setting.js";
 import { useRoute } from 'vue-router'
-import {externalAccountList, externalAccountSync} from "@/request/external-account.js";
+import {externalAccountFavertive, externalAccountList, externalAccountSync} from "@/request/external-account.js";
 import {ElMessage} from "element-plus";
 
 defineOptions({
@@ -213,6 +221,10 @@ const selectTitle = computed(() => {
   if (params.searchType === 'toEmail') return t('toEmail')
   if (params.searchType === 'name') return t('sender')
   if (params.searchType === 'subject') return t('subject')
+})
+
+const selectedExternalAccount = computed(() => {
+  return externalAccounts.value.find(item => item.externalAccountId === params.externalAccountId)
 })
 
 const paramsStar = localStorage.getItem('all-email-params')
@@ -369,6 +381,19 @@ async function syncSelectedExternalAccount(silent = false) {
   } finally {
     externalSyncing.value = false
   }
+}
+
+function toggleSelectedExternalAccountFavertive() {
+  const account = selectedExternalAccount.value
+  if (!account) {
+    return
+  }
+  const oldValue = account.isFavertive ? 1 : 0
+  const nextValue = oldValue ? 0 : 1
+  account.isFavertive = nextValue
+  externalAccountFavertive(account.externalAccountId, nextValue).catch(() => {
+    account.isFavertive = oldValue
+  })
 }
 
 function jumpContent(email) {
