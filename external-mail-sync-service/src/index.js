@@ -299,19 +299,33 @@ async function ingestRawMail(payload) {
 
 const server = http.createServer(async (req, res) => {
 	const url = new URL(req.url, `http://${req.headers.host}`);
+	const startedAt = Date.now();
+	const logRequest = (status, extra = {}) => {
+		console.log(JSON.stringify({
+			event: 'request',
+			method: req.method,
+			path: url.pathname,
+			status,
+			durationMs: Date.now() - startedAt,
+			...extra
+		}));
+	};
 	if (req.method === 'GET' && url.pathname === '/healthz') {
 		json(res, 200, { success: true });
+		logRequest(200);
 		return;
 	}
 
 	if (req.method !== 'POST' || !['/sync/test', '/sync/fetch'].includes(url.pathname)) {
 		json(res, 404, { success: false, error: 'Not Found' });
+		logRequest(404);
 		return;
 	}
 
 	const unauthorized = assertInternalToken(req);
 	if (unauthorized) {
 		json(res, unauthorized.status, unauthorized);
+		logRequest(unauthorized.status, { error: unauthorized.error });
 		return;
 	}
 
@@ -322,10 +336,12 @@ const server = http.createServer(async (req, res) => {
 			? (protocol === 'POP3' ? await testPop3(payload) : await testImap(payload))
 			: (protocol === 'POP3' ? await fetchPop3(payload) : await fetchImap(payload));
 		json(res, 200, data);
+		logRequest(200, { protocol, externalAccountId: payload.externalAccountId });
 	} catch (error) {
 		const code = mapError(error, protocol);
 		console.warn(JSON.stringify({ code, protocol, externalAccountId: payload.externalAccountId }));
 		json(res, 500, { success: false, error: code, message: code });
+		logRequest(500, { protocol, externalAccountId: payload.externalAccountId, error: code });
 	}
 });
 

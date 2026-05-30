@@ -92,17 +92,22 @@ async function callSyncService(c, path, payload) {
 	}
 
 	const url = c.env.external_mail_sync_url.replace(/\/$/, '') + path;
-	const res = await fetch(url, {
-		method: 'POST',
-		headers: {
-			'content-type': 'application/json',
-			'x-internal-token': c.env.external_mail_internal_token || ''
-		},
-		body: JSON.stringify(payload)
-	});
+	let res;
+	try {
+		res = await fetch(url, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				'x-internal-token': c.env.external_mail_internal_token || ''
+			},
+			body: JSON.stringify(payload)
+		});
+	} catch (e) {
+		throw new BizError(`external sync service request failed: ${e.message || e.name || 'fetch failed'}`);
+	}
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok || data.success === false) {
-		throw new BizError(data.message || data.error || 'external sync service failed');
+		throw new BizError(data.message || data.error || `external sync service failed: HTTP ${res.status}`);
 	}
 	return data;
 }
