@@ -2,6 +2,7 @@
   <div class="external-account-page">
     <div class="header-actions">
       <Icon v-perm="'external-account:add'" class="icon" icon="ion:add-outline" width="23" height="23" @click="openAdd"/>
+      <Icon v-perm="'external-account:add'" class="icon" icon="solar:import-outline" width="21" height="21" @click="openImport"/>
       <Icon class="icon" icon="ion:reload" width="18" height="18" @click="loadList"/>
     </div>
     <el-scrollbar class="table-scrollbar">
@@ -60,9 +61,6 @@
 
     <el-dialog v-model="formShow" :title="form.externalAccountId ? '编辑外部邮箱' : '添加外部邮箱'" width="620px" @closed="resetForm">
       <el-form label-width="110px" class="account-form">
-        <el-form-item label="账号名称">
-          <el-input v-model="form.name" autocomplete="off"/>
-        </el-form-item>
         <el-form-item label="邮箱地址">
           <el-input v-model="form.email" autocomplete="off"/>
         </el-form-item>
@@ -90,9 +88,6 @@
             <el-checkbox v-model="form.popSecure" class="secure-check">SSL</el-checkbox>
           </el-form-item>
         </template>
-        <el-form-item label="登录用户名">
-          <el-input v-model="form.username" autocomplete="off"/>
-        </el-form-item>
         <el-form-item label="邮箱密码">
           <el-input v-model="form.password" type="password" show-password :placeholder="form.externalAccountId ? '留空表示不修改' : ''" autocomplete="new-password"/>
         </el-form-item>
@@ -116,6 +111,75 @@
         <el-button type="primary" :loading="saving" @click="saveForm">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="importShow" title="批量导入外部邮箱" width="680px" @closed="resetImportForm">
+      <el-alert
+          class="import-tip"
+          type="info"
+          show-icon
+          :closable="false"
+          title="每行一个账号，格式：邮箱----密码；也支持：邮箱,密码。服务器、协议和代理配置会应用到所有账号。"
+      />
+      <el-form label-width="110px" class="account-form import-form">
+        <el-form-item label="协议">
+          <el-segmented v-model="importForm.protocol" :options="['IMAP', 'POP3']"/>
+        </el-form-item>
+        <template v-if="importForm.protocol === 'IMAP'">
+          <el-form-item label="IMAP Host">
+            <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="imap.aol.com"/>
+          </el-form-item>
+          <el-form-item label="IMAP Port">
+            <el-input-number v-model="importForm.imapPort" :min="1" :max="65535"/>
+            <el-checkbox v-model="importForm.imapSecure" class="secure-check">SSL</el-checkbox>
+          </el-form-item>
+          <el-form-item label="文件夹">
+            <el-input v-model="importForm.imapMailbox" autocomplete="off"/>
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="POP3 Host">
+            <el-input v-model="importForm.popHost" autocomplete="off" placeholder="pop.aol.com"/>
+          </el-form-item>
+          <el-form-item label="POP3 Port">
+            <el-input-number v-model="importForm.popPort" :min="1" :max="65535"/>
+            <el-checkbox v-model="importForm.popSecure" class="secure-check">SSL</el-checkbox>
+          </el-form-item>
+        </template>
+        <el-divider>SOCKS5 代理</el-divider>
+        <el-form-item label="代理 Host">
+          <el-input v-model="importForm.proxyHost" autocomplete="off"/>
+        </el-form-item>
+        <el-form-item label="代理 Port">
+          <el-input-number v-model="importForm.proxyPort" :min="0" :max="65535"/>
+        </el-form-item>
+        <el-form-item label="代理用户名">
+          <el-input v-model="importForm.proxyUsername" autocomplete="off"/>
+        </el-form-item>
+        <el-form-item label="代理密码">
+          <el-input v-model="importForm.proxyPassword" type="password" show-password autocomplete="new-password"/>
+        </el-form-item>
+        <el-form-item label="账号列表">
+          <el-input
+              v-model="importForm.content"
+              type="textarea"
+              :rows="8"
+              placeholder="rrrfctege@aol.com----应用专用密码&#10;user2@aol.com----应用专用密码"
+          />
+        </el-form-item>
+        <el-form-item v-if="importResult.length" label="导入结果">
+          <div class="import-result">
+            <div v-for="item in importResult" :key="item.email" :class="item.success ? 'success' : 'error'">
+              {{ item.email }}：{{ item.message }}
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="import-progress" v-if="importSaving">正在导入 {{ importProgress.done }}/{{ importProgress.total }}</span>
+        <el-button @click="importShow = false" :disabled="importSaving">取消</el-button>
+        <el-button type="primary" :loading="importSaving" @click="saveImport">开始导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -135,12 +199,20 @@ import {ElMessage, ElMessageBox} from "element-plus";
 const accounts = ref([])
 const loading = ref(false)
 const formShow = ref(false)
+const importShow = ref(false)
 const saving = ref(false)
+const importSaving = ref(false)
 const testSaving = ref(false)
 const testingId = ref(0)
 const syncingId = ref(0)
+const importResult = ref([])
+const importProgress = reactive({
+  done: 0,
+  total: 0
+})
 
 const form = reactive(defaultForm())
+const importForm = reactive(defaultImportForm())
 
 loadList()
 
@@ -166,8 +238,33 @@ function defaultForm() {
   }
 }
 
+function defaultImportForm() {
+  return {
+    protocol: 'IMAP',
+    imapHost: 'imap.aol.com',
+    imapPort: 993,
+    imapSecure: true,
+    imapMailbox: 'INBOX',
+    popHost: 'pop.aol.com',
+    popPort: 995,
+    popSecure: true,
+    proxyHost: '',
+    proxyPort: 0,
+    proxyUsername: '',
+    proxyPassword: '',
+    content: ''
+  }
+}
+
 function resetForm() {
   Object.assign(form, defaultForm())
+}
+
+function resetImportForm() {
+  Object.assign(importForm, defaultImportForm())
+  importResult.value = []
+  importProgress.done = 0
+  importProgress.total = 0
 }
 
 function loadList() {
@@ -182,6 +279,11 @@ function loadList() {
 function openAdd() {
   resetForm()
   formShow.value = true
+}
+
+function openImport() {
+  resetImportForm()
+  importShow.value = true
 }
 
 function openEdit(row) {
@@ -199,7 +301,7 @@ function openEdit(row) {
 function saveForm() {
   saving.value = true
   const request = form.externalAccountId ? externalAccountUpdate : externalAccountAdd
-  request({...form}).then(() => {
+  request(buildFormPayload()).then(() => {
     ElMessage({message: '保存成功', type: 'success', plain: true})
     formShow.value = false
     loadList()
@@ -208,9 +310,96 @@ function saveForm() {
   })
 }
 
+function buildFormPayload() {
+  const email = form.email.trim()
+  return {
+    ...form,
+    email,
+    name: email,
+    username: email
+  }
+}
+
+function parseImportRows() {
+  return importForm.content
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map((line, index) => {
+        let parts = line.includes('----')
+            ? line.split('----')
+            : line.split(/,|\t/)
+        parts = parts.map(item => item.trim())
+        const email = parts[0] || ''
+        const password = parts.slice(1).join('----') || ''
+        return {
+          index: index + 1,
+          email,
+          password
+        }
+      })
+}
+
+function buildImportPayload(row) {
+  return {
+    ...defaultForm(),
+    name: row.email,
+    email: row.email,
+    protocol: importForm.protocol,
+    imapHost: importForm.imapHost,
+    imapPort: importForm.imapPort,
+    imapSecure: importForm.imapSecure,
+    imapMailbox: importForm.imapMailbox,
+    popHost: importForm.popHost,
+    popPort: importForm.popPort,
+    popSecure: importForm.popSecure,
+    username: row.email,
+    password: row.password,
+    proxyHost: importForm.proxyHost,
+    proxyPort: importForm.proxyPort,
+    proxyUsername: importForm.proxyUsername,
+    proxyPassword: importForm.proxyPassword
+  }
+}
+
+async function saveImport() {
+  const rows = parseImportRows()
+  if (rows.length === 0) {
+    ElMessage({message: '请填写账号列表', type: 'warning', plain: true})
+    return
+  }
+
+  const invalid = rows.find(row => !row.email || !row.password)
+  if (invalid) {
+    ElMessage({message: `第 ${invalid.index} 行格式错误`, type: 'error', plain: true})
+    return
+  }
+
+  importSaving.value = true
+  importResult.value = []
+  importProgress.done = 0
+  importProgress.total = rows.length
+
+  for (const row of rows) {
+    try {
+      await externalAccountAdd(buildImportPayload(row))
+      importResult.value.push({email: row.email, success: true, message: '成功'})
+    } catch (e) {
+      importResult.value.push({email: row.email, success: false, message: e.message || '失败'})
+    } finally {
+      importProgress.done++
+    }
+  }
+
+  importSaving.value = false
+  const successCount = importResult.value.filter(item => item.success).length
+  ElMessage({message: `导入完成，成功 ${successCount} 个，失败 ${rows.length - successCount} 个`, type: successCount ? 'success' : 'error', plain: true})
+  loadList()
+}
+
 function testForm() {
   testSaving.value = true
-  externalAccountTest({...form}).then(data => {
+  externalAccountTest(buildFormPayload()).then(data => {
     ElMessage({message: `连接成功，邮件总数 ${data?.total ?? '-'}`, type: 'success', plain: true})
   }).finally(() => {
     testSaving.value = false
@@ -318,6 +507,32 @@ function statusText(status) {
 
 .secure-check {
   margin-left: 16px;
+}
+
+.import-tip {
+  margin-bottom: 16px;
+}
+
+.import-form {
+  .import-result {
+    width: 100%;
+    max-height: 160px;
+    overflow: auto;
+    line-height: 1.8;
+    font-size: 13px;
+    .success {
+      color: var(--el-color-success);
+    }
+    .error {
+      color: var(--el-color-danger);
+    }
+  }
+}
+
+.import-progress {
+  margin-right: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 
 @media (max-width: 767px) {
