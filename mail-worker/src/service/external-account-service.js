@@ -105,9 +105,18 @@ async function callSyncService(c, path, payload) {
 	} catch (e) {
 		throw new BizError(`external sync service request failed: ${e.message || e.name || 'fetch failed'}`);
 	}
-	const data = await res.json().catch(() => ({}));
+	const text = await res.text().catch(() => '');
+	let data = {};
+	try {
+		data = text ? JSON.parse(text) : {};
+	} catch {
+		data = {};
+	}
 	if (!res.ok || data.success === false) {
-		throw new BizError(data.message || data.error || `external sync service failed: HTTP ${res.status}`);
+		const detail = text && !data.message && !data.error
+			? `: ${text.slice(0, 160)}`
+			: '';
+		throw new BizError(data.message || data.error || `external sync service failed: HTTP ${res.status}${detail}`);
 	}
 	return data;
 }
