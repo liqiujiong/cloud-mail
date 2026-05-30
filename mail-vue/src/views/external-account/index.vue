@@ -435,7 +435,7 @@ function testAccount(row) {
 
 function syncAccount(row) {
   syncingId.value = row.externalAccountId
-  externalAccountSync(row.externalAccountId, 50).then(data => {
+  externalAccountSync(row.externalAccountId, 5).then(data => {
     ElMessage({message: `同步完成，新增 ${data?.fetched || 0} 封，跳过 ${data?.skipped || 0} 封`, type: 'success', plain: true})
     loadList()
   }).finally(() => {

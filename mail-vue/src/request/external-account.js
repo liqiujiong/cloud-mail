@@ -20,6 +20,6 @@ export function externalAccountTest(form) {
     return http.post('/externalAccount/test', form, {timeout: 60 * 1000})
 }
 
-export function externalAccountSync(externalAccountId, limit = 50) {
+export function externalAccountSync(externalAccountId, limit = 5) {
     return http.post('/externalAccount/sync', {externalAccountId, limit}, {timeout: 120 * 1000})
 }

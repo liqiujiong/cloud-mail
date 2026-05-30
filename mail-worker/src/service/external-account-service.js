@@ -1,7 +1,7 @@
 import orm from '../entity/orm';
 import externalAccount from '../entity/external-account';
 import externalMailUid from '../entity/external-mail-uid';
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq, ne, or, sql } from 'drizzle-orm';
 import { emailConst, externalAccountConst, isDel } from '../const/entity-const';
 import BizError from '../error/biz-error';
 import secretCryptoUtils from '../utils/secret-crypto-utils';
@@ -131,6 +131,26 @@ const externalAccountService = {
 		if (params.protocol) {
 			conditions.push(eq(externalAccount.protocol, normalizeProtocol(params.protocol)));
 		}
+		if (params.keyword) {
+			const keyword = `%${String(params.keyword).trim()}%`;
+			conditions.push(or(
+				sql`${externalAccount.email} COLLATE NOCASE LIKE ${keyword}`,
+				sql`${externalAccount.name} COLLATE NOCASE LIKE ${keyword}`
+			));
+		}
+		if (params.page || params.size || params.keyword) {
+			const page = Math.max(Number(params.page || 1), 1);
+			const size = Math.min(Math.max(Number(params.size || 50), 1), 100);
+			const totalRow = await orm(c).select({ total: count() }).from(externalAccount).where(and(...conditions)).get();
+			const list = await orm(c).select()
+				.from(externalAccount)
+				.where(and(...conditions))
+				.orderBy(desc(externalAccount.externalAccountId))
+				.limit(size)
+				.offset((page - 1) * size)
+				.all();
+			return { list: list.map(sanitize), total: totalRow.total };
+		}
 		const list = await orm(c).select().from(externalAccount).where(and(...conditions)).orderBy(desc(externalAccount.externalAccountId)).all();
 		return list.map(sanitize);
 	},
@@ -158,10 +178,29 @@ const externalAccountService = {
 		if (!params.password) {
 			throw new BizError('Password is required');
 		}
+		await this.checkDuplicate(c, params.email, userId);
 		await this.checkAccountLimit(c, userId);
 		const data = await this.toSaveData(c, params, userId);
 		const row = await orm(c).insert(externalAccount).values(data).returning().get();
 		return sanitize(row);
+	},
+
+	async checkDuplicate(c, email, userId, externalAccountId = 0) {
+		const conditions = [
+			eq(externalAccount.userId, userId),
+			eq(externalAccount.isDel, isDel.NORMAL),
+			sql`LOWER(${externalAccount.email}) = ${String(email || '').trim().toLowerCase()}`
+		];
+		if (externalAccountId) {
+			conditions.push(ne(externalAccount.externalAccountId, Number(externalAccountId)));
+		}
+		const row = await orm(c).select({ externalAccountId: externalAccount.externalAccountId })
+			.from(externalAccount)
+			.where(and(...conditions))
+			.get();
+		if (row) {
+			throw new BizError('外部邮箱账号已存在', 409);
+		}
 	},
 
 	async checkAccountLimit(c, userId) {
@@ -184,6 +223,7 @@ const externalAccountService = {
 
 	async update(c, params, userId) {
 		const row = await this.detail(c, params.externalAccountId, userId);
+		await this.checkDuplicate(c, params.email, row.userId, row.externalAccountId);
 		const data = await this.toSaveData(c, params, row.userId, row);
 		data.updateTime = dayjs().format('YYYY-MM-DD HH:mm:ss');
 		await orm(c).update(externalAccount).set(data).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
@@ -256,7 +296,7 @@ const externalAccountService = {
 		}).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
 
 		try {
-			const limit = Math.min(Number(params.limit || 50), 100);
+			const limit = Math.min(Number(params.limit || 5), 20);
 			const payload = await toNodePayload(c, row, limit);
 			const data = await callSyncService(c, '/sync/fetch', payload);
 			await this.updateSyncResult(c, row.externalAccountId, {

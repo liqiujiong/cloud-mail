@@ -56,7 +56,19 @@
           <el-option label="外部 IMAP" value="external_imap"/>
           <el-option label="外部 POP3" value="external_pop3"/>
         </el-select>
-        <el-select v-model="params.externalAccountId" placeholder="外部账号" class="external-select" clearable filterable @change="search">
+        <el-select
+            v-model="params.externalAccountId"
+            placeholder="外部账号"
+            class="external-select"
+            clearable
+            filterable
+            remote
+            reserve-keyword
+            :remote-method="loadExternalAccounts"
+            :loading="externalAccountLoading"
+            @visible-change="visible => visible && loadExternalAccounts('')"
+            @change="search"
+        >
           <el-option
               v-for="item in externalAccounts"
               :key="item.externalAccountId"
@@ -64,6 +76,15 @@
               :value="item.externalAccountId"
           />
         </el-select>
+        <Icon
+            v-if="params.externalAccountId"
+            class="icon"
+            :class="{disabled: externalSyncing}"
+            icon="ion:sync-outline"
+            width="21"
+            height="21"
+            @click="syncSelectedExternalAccount"
+        />
         <Icon class="icon" icon="iconoir:search" @click="search" width="20" height="20"/>
         <Icon class="icon" @click="changeTimeSort" icon="material-symbols-light:timer-arrow-down-outline"
               v-if="params.timeSort === 0" width="28" height="28"/>
@@ -118,7 +139,8 @@ import {toUtc} from "@/utils/day.js";
 import {sleep} from "@/utils/time-utils.js";
 import {useSettingStore} from "@/store/setting.js";
 import { useRoute } from 'vue-router'
-import {externalAccountList} from "@/request/external-account.js";
+import {externalAccountList, externalAccountSync} from "@/request/external-account.js";
+import {ElMessage} from "element-plus";
 
 defineOptions({
   name: 'all-email'
@@ -135,6 +157,8 @@ const mySelect = ref()
 const showBathDelete = ref(false)
 const clearLoading = ref(false)
 const externalAccounts = ref([])
+const externalAccountLoading = ref(false)
+const externalSyncing = ref(false)
 
 onMounted(() => {
   loadExternalAccounts()
@@ -306,11 +330,27 @@ function sourceChange() {
   search()
 }
 
-function loadExternalAccounts() {
-  externalAccountList().then(data => {
-    externalAccounts.value = data || []
+function loadExternalAccounts(keyword = '') {
+  externalAccountLoading.value = true
+  externalAccountList({page: 1, size: 20, keyword}).then(data => {
+    externalAccounts.value = data?.list || []
   }).catch(() => {
     externalAccounts.value = []
+  }).finally(() => {
+    externalAccountLoading.value = false
+  })
+}
+
+function syncSelectedExternalAccount() {
+  if (!params.externalAccountId || externalSyncing.value) {
+    return
+  }
+  externalSyncing.value = true
+  externalAccountSync(params.externalAccountId, 5).then(data => {
+    ElMessage({message: `同步完成，新增 ${data?.fetched || 0} 封，跳过 ${data?.skipped || 0} 封`, type: 'success', plain: true})
+    search()
+  }).finally(() => {
+    externalSyncing.value = false
   })
 }
 
@@ -525,6 +565,11 @@ async function latest() {
 
 .icon {
   cursor: pointer;
+
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
 }
 
 .clear {
