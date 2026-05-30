@@ -51,6 +51,19 @@
           <el-option key="4" :label="$t('selectDeleted')" value="delete"/>
           <el-option key="4" :label="$t('noRecipientTitle')" value="noone"/>
         </el-select>
+        <el-select v-model="params.sourceType" placeholder="来源" class="source-select" clearable @change="sourceChange">
+          <el-option label="Cloudflare" value="cloudflare_routing"/>
+          <el-option label="外部 IMAP" value="external_imap"/>
+          <el-option label="外部 POP3" value="external_pop3"/>
+        </el-select>
+        <el-select v-model="params.externalAccountId" placeholder="外部账号" class="external-select" clearable filterable @change="search">
+          <el-option
+              v-for="item in externalAccounts"
+              :key="item.externalAccountId"
+              :label="item.email"
+              :value="item.externalAccountId"
+          />
+        </el-select>
         <Icon class="icon" icon="iconoir:search" @click="search" width="20" height="20"/>
         <Icon class="icon" @click="changeTimeSort" icon="material-symbols-light:timer-arrow-down-outline"
               v-if="params.timeSort === 0" width="28" height="28"/>
@@ -105,6 +118,7 @@ import {toUtc} from "@/utils/day.js";
 import {sleep} from "@/utils/time-utils.js";
 import {useSettingStore} from "@/store/setting.js";
 import { useRoute } from 'vue-router'
+import {externalAccountList} from "@/request/external-account.js";
 
 defineOptions({
   name: 'all-email'
@@ -120,8 +134,10 @@ const searchValue = ref('')
 const mySelect = ref()
 const showBathDelete = ref(false)
 const clearLoading = ref(false)
+const externalAccounts = ref([])
 
 onMounted(() => {
+  loadExternalAccounts()
   latest();
 })
 
@@ -136,7 +152,9 @@ const params = reactive({
   accountEmail: null,
   name: null,
   subject: null,
-  searchType: 'name'
+  searchType: 'name',
+  sourceType: null,
+  externalAccountId: null
 })
 
 const clearParams = reactive({
@@ -242,6 +260,8 @@ function refreshBefore() {
   params.name = null
   params.subject = null
   params.searchType = 'name'
+  params.sourceType = null
+  params.externalAccountId = null
 }
 
 function search() {
@@ -277,6 +297,21 @@ function changeTimeSort() {
 
 function typeSelectChange() {
   search()
+}
+
+function sourceChange() {
+  if (!['external_imap', 'external_pop3'].includes(params.sourceType)) {
+    params.externalAccountId = null
+  }
+  search()
+}
+
+function loadExternalAccounts() {
+  externalAccountList().then(data => {
+    externalAccounts.value = data || []
+  }).catch(() => {
+    externalAccounts.value = []
+  })
 }
 
 function jumpContent(email) {
@@ -322,7 +357,10 @@ async function latest() {
     try {
 
       const curTimeSort = params.timeSort
-      let list = await allEmailLatest(latestId)
+      let list = await allEmailLatest(latestId, {
+        sourceType: params.sourceType,
+        externalAccountId: params.externalAccountId
+      })
 
       if (list.length === 0) {
         continue
@@ -454,6 +492,16 @@ async function latest() {
   :deep(.el-select__wrapper) {
     min-height: 28px;
   }
+}
+
+.source-select {
+  margin-bottom: 2px;
+  width: 130px;
+}
+
+.external-select {
+  margin-bottom: 2px;
+  width: 180px;
 }
 
 .input-with-select {

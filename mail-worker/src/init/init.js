@@ -30,8 +30,89 @@ const dbInit = {
 		await this.v2_9DB(c);
 		await this.v3_0DB(c);
 		await this.v3_1DB(c);
+		await this.v3_2DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async v3_2DB(c) {
+		const sqlList = [
+			`CREATE TABLE IF NOT EXISTS external_account (
+				external_account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				name TEXT NOT NULL,
+				email TEXT NOT NULL,
+				protocol TEXT NOT NULL,
+				imap_host TEXT NOT NULL DEFAULT '',
+				imap_port INTEGER NOT NULL DEFAULT 993,
+				imap_secure INTEGER NOT NULL DEFAULT 1,
+				imap_mailbox TEXT NOT NULL DEFAULT 'INBOX',
+				pop_host TEXT NOT NULL DEFAULT '',
+				pop_port INTEGER NOT NULL DEFAULT 995,
+				pop_secure INTEGER NOT NULL DEFAULT 1,
+				username TEXT NOT NULL,
+				password_encrypted TEXT NOT NULL,
+				proxy_type TEXT NOT NULL DEFAULT 'SOCKS5',
+				proxy_host TEXT NOT NULL DEFAULT '',
+				proxy_port INTEGER NOT NULL DEFAULT 0,
+				proxy_username TEXT NOT NULL DEFAULT '',
+				proxy_password_encrypted TEXT NOT NULL DEFAULT '',
+				status TEXT NOT NULL DEFAULT 'normal',
+				last_sync_time DATETIME,
+				last_sync_result TEXT NOT NULL DEFAULT '',
+				last_error_code TEXT NOT NULL DEFAULT '',
+				last_error TEXT NOT NULL DEFAULT '',
+				syncing INTEGER NOT NULL DEFAULT 0,
+				sync_lock_time DATETIME,
+				create_time DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+				update_time DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+				is_del INTEGER NOT NULL DEFAULT 0
+			)`,
+			`CREATE TABLE IF NOT EXISTS external_mail_uid (
+				external_mail_uid_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				external_account_id INTEGER NOT NULL,
+				protocol TEXT NOT NULL,
+				mailbox TEXT NOT NULL DEFAULT '',
+				uid TEXT NOT NULL DEFAULT '',
+				uidl TEXT NOT NULL DEFAULT '',
+				message_id TEXT NOT NULL DEFAULT '',
+				email_id INTEGER NOT NULL DEFAULT 0,
+				create_time DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_mail_uid_imap ON external_mail_uid(external_account_id, mailbox, uid) WHERE protocol = 'IMAP'`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_mail_uid_pop3 ON external_mail_uid(external_account_id, uidl) WHERE protocol = 'POP3'`,
+			`CREATE INDEX IF NOT EXISTS idx_external_account_user_id ON external_account(user_id, is_del)`,
+			`CREATE INDEX IF NOT EXISTS idx_email_source_external ON email(source_type, external_account_id)`,
+			`ALTER TABLE email ADD COLUMN source_type TEXT NOT NULL DEFAULT 'cloudflare_routing';`,
+			`ALTER TABLE email ADD COLUMN external_account_id INTEGER NOT NULL DEFAULT 0;`,
+			`ALTER TABLE email ADD COLUMN external_uid TEXT NOT NULL DEFAULT '';`,
+			`ALTER TABLE email ADD COLUMN external_mailbox TEXT NOT NULL DEFAULT '';`,
+			`ALTER TABLE email ADD COLUMN sync_time DATETIME;`,
+			`ALTER TABLE role ADD COLUMN external_account_count INTEGER;`
+		];
+
+		for (const sql of sqlList) {
+			try {
+				await c.env.db.prepare(sql).run();
+			} catch (e) {
+				console.warn(`跳过字段：${e.message}`);
+			}
+		}
+
+		try {
+			await c.env.db.prepare(`
+				INSERT INTO perm (perm_id, name, perm_key, pid, type, sort) VALUES
+				(37,'外部邮箱账号', NULL, 0, 1, 5.2),
+				(38,'外部账号查看', 'external-account:query', 37, 2, 0),
+				(39,'外部账号添加', 'external-account:add', 37, 2, 1),
+				(40,'外部账号修改', 'external-account:set', 37, 2, 2),
+				(41,'外部账号删除', 'external-account:delete', 37, 2, 3),
+				(42,'外部账号测试', 'external-account:test', 37, 2, 4),
+				(43,'外部账号同步', 'external-account:sync', 37, 2, 5)
+			`).run();
+		} catch (e) {
+			console.warn(`跳过数据：${e.message}`);
+		}
 	},
 
 	async v3_1DB(c) {

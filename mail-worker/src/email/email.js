@@ -2,15 +2,12 @@ import PostalMime from 'postal-mime';
 import emailService from '../service/email-service';
 import accountService from '../service/account-service';
 import settingService from '../service/setting-service';
-import attService from '../service/att-service';
-import constant from '../const/constant';
-import fileUtils from '../utils/file-utils';
 import { emailConst, isDel, settingConst } from '../const/entity-const';
 import emailUtils from '../utils/email-utils';
 import roleService from '../service/role-service';
 import userService from '../service/user-service';
 import telegramService from '../service/telegram-service';
-import aiService from '../service/ai-service';
+import mailReceiveService from '../service/mail-receive-service';
 
 export async function email(message, env, ctx) {
 
@@ -91,58 +88,14 @@ export async function email(message, env, ctx) {
 			email.to = [{ address: message.to, name: emailUtils.getName(message.to)}]
 		}
 
-		const toName = email.to.find(item => item.address === message.to)?.name || '';
-		const code = await aiService.extractCode({ env }, email, { aiCode, aiCodeFilter });
-
-		const params = {
+		let emailRow = await mailReceiveService.saveParsedMail({ env }, email, {
 			toEmail: message.to,
-			toName: toName,
-			sendEmail: email.from.address,
-			name: email.from.name || emailUtils.getName(email.from.address),
-			subject: email.subject,
-			code,
-			content: email.html,
-			text: email.text,
-			cc: email.cc ? JSON.stringify(email.cc) : '[]',
-			bcc: email.bcc ? JSON.stringify(email.bcc) : '[]',
-			recipient: JSON.stringify(email.to),
-			inReplyTo: email.inReplyTo,
-			relation: email.references,
-			messageId: email.messageId,
 			userId: account ? account.userId : 0,
 			accountId: account ? account.accountId : 0,
 			isDel: isDel.DELETE,
-			status: emailConst.status.SAVING
-		};
-
-		const attachments = [];
-		const cidAttachments = [];
-
-		for (let item of email.attachments) {
-			let attachment = { ...item };
-			attachment.key = constant.ATTACHMENT_PREFIX + await fileUtils.getBuffHash(attachment.content) + fileUtils.getExtFileName(item.filename);
-			attachment.size = item.content.length ?? item.content.byteLength;
-			attachments.push(attachment);
-			if (attachment.contentId) {
-				cidAttachments.push(attachment);
-			}
-		}
-
-		let emailRow = await emailService.receive({ env }, params, cidAttachments, r2Domain);
-
-		attachments.forEach(attachment => {
-			attachment.emailId = emailRow.emailId;
-			attachment.userId = emailRow.userId;
-			attachment.accountId = emailRow.accountId;
-		});
-
-		try {
-			if (attachments.length > 0) {
-				await attService.addAtt({ env }, attachments);
-			}
-		} catch (e) {
-			console.error(e);
-		}
+			status: emailConst.status.SAVING,
+			sourceType: emailConst.sourceType.CLOUDFLARE_ROUTING
+		}, { r2Domain, aiCode, aiCodeFilter });
 
 		emailRow = await emailService.completeReceive({ env }, account ? emailConst.status.RECEIVE : emailConst.status.NOONE, emailRow.emailId);
 

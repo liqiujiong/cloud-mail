@@ -40,6 +40,11 @@ export const emailConst = {
 		SEND: 1,
 		RECEIVE: 0
 	},
+	sourceType: {
+		CLOUDFLARE_ROUTING: 'cloudflare_routing',
+		EXTERNAL_IMAP: 'external_imap',
+		EXTERNAL_POP3: 'external_pop3'
+	},
 	status:  {
 		RECEIVE: 0,
 		SENT: 1,
@@ -54,6 +59,22 @@ export const emailConst = {
 	unread: {
 		UNREAD: 0,
 		READ: 1
+	}
+}
+
+export const externalAccountConst = {
+	protocol: {
+		IMAP: 'IMAP',
+		POP3: 'POP3'
+	},
+	status: {
+		NORMAL: 'normal',
+		DISABLED: 'disabled',
+		TEST_FAILED: 'test_failed',
+		SYNC_FAILED: 'sync_failed',
+		PROXY_FAILED: 'proxy_failed',
+		LOGIN_FAILED: 'login_failed',
+		SECURITY_CHECK_REQUIRED: 'security_check_required'
 	}
 }
 

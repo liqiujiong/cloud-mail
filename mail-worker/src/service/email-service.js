@@ -27,13 +27,14 @@ const emailService = {
 
 	async list(c, params, userId) {
 
-		let { emailId, type, accountId, size, timeSort, allReceive } = params;
+		let { emailId, type, accountId, size, timeSort, allReceive, sourceType, externalAccountId } = params;
 
 		size = Number(size);
 		emailId = Number(emailId);
 		timeSort = Number(timeSort);
 		accountId = Number(accountId);
 		allReceive = Number(allReceive);
+		externalAccountId = Number(externalAccountId || 0);
 
 		if (size > 50) {
 			size = 50;
@@ -54,6 +55,26 @@ const emailService = {
 			allReceive = accountRow.allReceive;
 		}
 
+		const cursorCondition = timeSort ? gt(email.emailId, emailId) : lt(email.emailId, emailId);
+		const conditions = [
+			allReceive ? eq(1,1) : eq(email.accountId, accountId),
+			eq(email.userId, userId),
+			cursorCondition,
+			eq(email.type, type),
+			eq(email.isDel, isDel.NORMAL),
+			or(eq(account.isDel, isDel.NORMAL), ne(email.sourceType, emailConst.sourceType.CLOUDFLARE_ROUTING))
+		];
+
+		if (sourceType) {
+			conditions.push(eq(email.sourceType, sourceType));
+		}
+
+		if (externalAccountId) {
+			conditions.push(eq(email.externalAccountId, externalAccountId));
+		}
+
+		const countConditions = conditions.filter(condition => condition !== cursorCondition);
+
 		const query = orm(c)
 			.select({
 				...email,
@@ -70,16 +91,7 @@ const emailService = {
 				account,
 				eq(account.accountId, email.accountId)
 			)
-			.where(
-				and(
-					allReceive ? eq(1,1) : eq(email.accountId, accountId),
-					eq(email.userId, userId),
-					timeSort ? gt(email.emailId, emailId) : lt(email.emailId, emailId),
-					eq(email.type, type),
-					eq(email.isDel, isDel.NORMAL),
-					eq(account.isDel, isDel.NORMAL)
-				)
-			);
+			.where(and(...conditions));
 
 		if (timeSort) {
 			query.orderBy(asc(email.emailId));
@@ -94,15 +106,7 @@ const emailService = {
 				account,
 				eq(account.accountId, email.accountId)
 			)
-			.where(
-				and(
-					allReceive ? eq(1,1) : eq(email.accountId, accountId),
-					eq(email.userId, userId),
-					eq(email.type, type),
-					eq(email.isDel, isDel.NORMAL),
-					eq(account.isDel, isDel.NORMAL)
-				)
-		).get();
+			.where(and(...countConditions)).get();
 
 		const latestEmailQuery = orm(c).select().from(email).where(
 			and(
@@ -701,12 +705,30 @@ const emailService = {
 	},
 
 	async latest(c, params, userId) {
-		let { emailId, accountId, allReceive } = params;
+		let { emailId, accountId, allReceive, sourceType, externalAccountId } = params;
 		allReceive = Number(allReceive);
+		externalAccountId = Number(externalAccountId || 0);
 
 		if (isNaN(allReceive)) {
 			let accountRow = await accountService.selectById(c, accountId);
 			allReceive = accountRow.allReceive;
+		}
+
+		const conditions = [
+			gt(email.emailId, emailId),
+			eq(email.userId, userId),
+			eq(email.isDel, isDel.NORMAL),
+			or(eq(account.isDel, isDel.NORMAL), ne(email.sourceType, emailConst.sourceType.CLOUDFLARE_ROUTING)),
+			allReceive ? eq(1,1) : eq(email.accountId, accountId),
+			eq(email.type, emailConst.type.RECEIVE)
+		];
+
+		if (sourceType) {
+			conditions.push(eq(email.sourceType, sourceType));
+		}
+
+		if (externalAccountId) {
+			conditions.push(eq(email.externalAccountId, externalAccountId));
 		}
 
 		let list = await orm(c).select({...email}).from(email)
@@ -714,15 +736,7 @@ const emailService = {
 				account,
 				eq(account.accountId, email.accountId)
 			)
-			.where(
-				and(
-					gt(email.emailId, emailId),
-					eq(email.userId, userId),
-					eq(email.isDel, isDel.NORMAL),
-					eq(account.isDel, isDel.NORMAL),
-					allReceive ? eq(1,1) : eq(email.accountId, accountId),
-					eq(email.type, emailConst.type.RECEIVE)
-				))
+			.where(and(...conditions))
 			.orderBy(desc(email.emailId))
 			.limit(20);
 
@@ -771,12 +785,13 @@ const emailService = {
 
 	async allList(c, params) {
 
-		let { emailId, size, name, subject, accountEmail, userEmail, type, timeSort } = params;
+		let { emailId, size, name, subject, accountEmail, userEmail, type, timeSort, sourceType, externalAccountId } = params;
 
 		size = Number(size);
 
 		emailId = Number(emailId);
 		timeSort = Number(timeSort);
+		externalAccountId = Number(externalAccountId || 0);
 
 		if (size > 50) {
 			size = 50;
@@ -831,6 +846,14 @@ const emailService = {
 			conditions.push(sql`${email.subject} COLLATE NOCASE LIKE ${'%'+ subject + '%'}`);
 		}
 
+		if (sourceType) {
+			conditions.push(eq(email.sourceType, sourceType));
+		}
+
+		if (externalAccountId) {
+			conditions.push(eq(email.externalAccountId, externalAccountId));
+		}
+
 		conditions.push(ne(email.status, emailConst.status.SAVING));
 
 		const countConditions = [...conditions];
@@ -883,16 +906,26 @@ const emailService = {
 
 	async allEmailLatest(c, params) {
 
-		const { emailId } = params;
+		let { emailId, sourceType, externalAccountId } = params;
+		externalAccountId = Number(externalAccountId || 0);
+
+		const conditions = [
+			gt(email.emailId, emailId),
+			eq(email.type, emailConst.type.RECEIVE),
+			ne(email.status, emailConst.status.SAVING)
+		];
+
+		if (sourceType) {
+			conditions.push(eq(email.sourceType, sourceType));
+		}
+
+		if (externalAccountId) {
+			conditions.push(eq(email.externalAccountId, externalAccountId));
+		}
 
 		let list = await orm(c).select({...email, userEmail: user.email}).from(email)
 			.leftJoin(user, eq(email.userId, user.userId))
-			.where(
-				and(
-					gt(email.emailId, emailId),
-					eq(email.type, emailConst.type.RECEIVE),
-					ne(email.status, emailConst.status.SAVING)
-				))
+			.where(and(...conditions))
 			.orderBy(desc(email.emailId))
 			.limit(20);
 

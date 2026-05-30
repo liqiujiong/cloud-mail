@@ -109,6 +109,16 @@ const routers = {
             menu: true
         }
     }],
+    'external-account:query': [{
+        path: '/external-mail-accounts',
+        name: 'external-account',
+        component: () => import('@/views/external-account/index.vue'),
+        meta: {
+            title: '外部邮箱账号',
+            name: 'external-account',
+            menu: true
+        }
+    }],
     'analysis:query': [{
         path: '/analysis',
         name: 'analysis',

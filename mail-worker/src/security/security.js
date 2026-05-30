@@ -18,7 +18,9 @@ const exclude = [
 	'/public/genToken',
 	'/telegram',
 	'/test',
-	'/oauth'
+	'/oauth',
+	'/internal/externalMail',
+	'/internal/external-mail'
 ];
 
 const requirePerms = [
@@ -58,7 +60,19 @@ const requirePerms = [
 	'/regKey/list',
 	'/regKey/delete',
 	'/regKey/clearNotUse',
-	'/regKey/history'
+	'/regKey/history',
+	'/externalAccount/list',
+	'/externalAccount/add',
+	'/externalAccount/update',
+	'/externalAccount/delete',
+	'/externalAccount/test',
+	'/externalAccount/sync',
+	'/external-account/list',
+	'/external-account/add',
+	'/external-account/update',
+	'/external-account/delete',
+	'/external-account/test',
+	'/external-account/sync'
 ];
 
 const premKey = {
@@ -87,6 +101,12 @@ const premKey = {
 	'reg-key:add': ['/regKey/add'],
 	'reg-key:query': ['/regKey/list','/regKey/history'],
 	'reg-key:delete': ['/regKey/delete','/regKey/clearNotUse'],
+	'external-account:query': ['/externalAccount/list','/external-account/list'],
+	'external-account:add': ['/externalAccount/add','/external-account/add'],
+	'external-account:set': ['/externalAccount/update','/external-account/update'],
+	'external-account:delete': ['/externalAccount/delete','/external-account/delete'],
+	'external-account:test': ['/externalAccount/test','/external-account/test'],
+	'external-account:sync': ['/externalAccount/sync','/external-account/sync'],
 };
 
 app.use('*', async (c, next) => {

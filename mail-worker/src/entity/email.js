@@ -23,6 +23,11 @@ export const email = sqliteTable('email', {
 	resendEmailId: text('resend_email_id'),
 	message: text('message'),
 	unread: integer('unread').default(0).notNull(),
+	sourceType: text('source_type').default('cloudflare_routing').notNull(),
+	externalAccountId: integer('external_account_id').default(0).notNull(),
+	externalUid: text('external_uid').default('').notNull(),
+	externalMailbox: text('external_mailbox').default('').notNull(),
+	syncTime: text('sync_time'),
 	createTime: text('create_time').default(sql`CURRENT_TIMESTAMP`).notNull(),
 	isDel: integer('is_del').default(0).notNull()
 });

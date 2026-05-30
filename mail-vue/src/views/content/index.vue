@@ -26,6 +26,13 @@
                 </div>
               </div>
               <div class="receive"><span class="source">{{$t('recipient')}}</span><span class="receive-email">{{  formateReceive(email.recipient) }}</span></div>
+              <div class="receive" v-if="email.sourceType && email.sourceType !== 'cloudflare_routing'">
+                <span class="source">来源</span>
+                <span class="receive-email">
+                  {{ sourceText(email.sourceType) }}
+                  <template v-if="email.externalUid"> / {{ email.externalMailbox || '-' }} / {{ email.externalUid }}</template>
+                </span>
+              </div>
               <div class="date">
                 <div>{{ formatDetailDate(email.createTime) }}</div>
               </div>
@@ -151,6 +158,15 @@ function isImage(filename) {
 function formateReceive(recipient) {
   recipient = JSON.parse(recipient)
   return recipient.map(item => item.address).join(', ')
+}
+
+function sourceText(sourceType) {
+  const map = {
+    external_imap: '外部 IMAP',
+    external_pop3: '外部 POP3',
+    cloudflare_routing: 'Cloudflare'
+  }
+  return map[sourceType] || sourceType
 }
 
 function changeStar() {
