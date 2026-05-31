@@ -86,12 +86,17 @@
         <Icon
             v-if="params.externalAccountId"
             class="icon"
-            :class="{disabled: externalSyncing}"
+            :class="{disabled: externalSyncing, syncing: externalSyncing}"
             icon="ion:sync-outline"
             width="21"
             height="21"
             @click="syncSelectedExternalAccount"
         />
+        <span v-if="selectedExternalAccount" class="external-account-meta">
+          <span v-if="selectedExternalAccount.remark">{{ selectedExternalAccount.remark }}</span>
+          <span>{{ externalAccountStatusText(selectedExternalAccount.status) }}</span>
+          <span>{{ formatExternalSyncTime(selectedExternalAccount.lastSyncTime) }}</span>
+        </span>
         <Icon class="icon" icon="iconoir:search" @click="search" width="20" height="20"/>
         <Icon class="icon" @click="changeTimeSort" icon="material-symbols-light:timer-arrow-down-outline"
               v-if="params.timeSort === 0" width="28" height="28"/>
@@ -142,7 +147,7 @@ import {
 import {Icon} from "@iconify/vue";
 import router from "@/router/index.js";
 import {useI18n} from 'vue-i18n';
-import {toUtc} from "@/utils/day.js";
+import {toUtc, tzDayjs} from "@/utils/day.js";
 import {sleep} from "@/utils/time-utils.js";
 import {useSettingStore} from "@/store/setting.js";
 import { useRoute } from 'vue-router'
@@ -377,6 +382,12 @@ async function syncSelectedExternalAccount(silent = false) {
     if (!silent || data?.fetched > 0) {
       search()
     }
+    const account = selectedExternalAccount.value
+    if (account) {
+      account.status = 'normal'
+      account.lastSyncTime = tzDayjs().utc().format('YYYY-MM-DD HH:mm:ss')
+      account.lastSyncResult = `新增 ${data?.fetched || 0} 封，跳过 ${data?.skipped || 0} 封。`
+    }
     return data
   } finally {
     externalSyncing.value = false
@@ -394,6 +405,23 @@ function toggleSelectedExternalAccountFavertive() {
   externalAccountFavertive(account.externalAccountId, nextValue).catch(() => {
     account.isFavertive = oldValue
   })
+}
+
+function externalAccountStatusText(status) {
+  const map = {
+    normal: '正常',
+    disabled: '禁用',
+    test_failed: '测试失败',
+    sync_failed: '同步失败',
+    proxy_failed: '代理失败',
+    login_failed: '登录失败',
+    security_check_required: '风控异常'
+  }
+  return map[status] || status || '-'
+}
+
+function formatExternalSyncTime(time) {
+  return time ? tzDayjs(time).format('YYYY-MM-DD HH:mm:ss') : '未同步'
 }
 
 function jumpContent(email) {
@@ -616,6 +644,35 @@ async function latest() {
   &.disabled {
     cursor: not-allowed;
     opacity: 0.45;
+  }
+
+  &.syncing {
+    animation: sync-rotate 0.8s linear infinite;
+  }
+}
+
+.external-account-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@keyframes sync-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 

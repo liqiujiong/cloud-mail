@@ -31,6 +31,14 @@ function normalizeProtocol(protocol) {
 	return String(protocol || '').toUpperCase();
 }
 
+function normalizeLimit(value, fallback = 50) {
+	const limit = Number(value ?? fallback);
+	if (limit <= 0) {
+		return 0;
+	}
+	return Math.min(limit, MAX_LIMIT);
+}
+
 function proxyUrl(proxy) {
 	if (!proxy?.host || !proxy?.port) {
 		return undefined;
@@ -113,13 +121,13 @@ async function testImap(payload) {
 
 async function fetchImap(payload) {
 	const known = new Set((payload.knownUids || []).map(String));
-	const limit = Math.min(Number(payload.limit || 50), MAX_LIMIT);
+	const limit = normalizeLimit(payload.limit);
 	const result = { success: true, total: 0, fetched: 0, skipped: 0, errors: [] };
 
 	await withImapClient(payload, async (client) => {
 		const mailbox = await client.mailboxOpen(payload.imap.mailbox || 'INBOX');
 		result.total = mailbox.exists;
-		const start = Math.max(1, mailbox.exists - limit + 1);
+		const start = limit > 0 ? Math.max(1, mailbox.exists - limit + 1) : 1;
 		const range = `${start}:*`;
 		const messages = [];
 
@@ -241,7 +249,7 @@ async function testPop3(payload) {
 
 async function fetchPop3(payload) {
 	const known = new Set((payload.knownUidls || []).map(String));
-	const limit = Math.min(Number(payload.limit || 50), MAX_LIMIT);
+	const limit = normalizeLimit(payload.limit);
 	const result = { success: true, total: 0, fetched: 0, skipped: 0, errors: [] };
 
 	await withPop3Socket(payload, async (socket) => {
@@ -255,7 +263,8 @@ async function fetchPop3(payload) {
 			.filter(parts => parts.length >= 2)
 			.map(([index, uidl]) => ({ index: Number(index), uidl }));
 
-		for (const item of uidls.slice(-limit)) {
+		const targetUidls = limit > 0 ? uidls.slice(-limit) : uidls;
+		for (const item of targetUidls) {
 			if (known.has(item.uidl)) {
 				result.skipped += 1;
 				continue;

@@ -6,6 +6,7 @@ export const externalAccount = sqliteTable('external_account', {
 	userId: integer('user_id').notNull(),
 	name: text('name').notNull(),
 	email: text('email').notNull(),
+	remark: text('remark').default('').notNull(),
 	protocol: text('protocol').notNull(),
 	imapHost: text('imap_host').default('').notNull(),
 	imapPort: integer('imap_port').default(993).notNull(),

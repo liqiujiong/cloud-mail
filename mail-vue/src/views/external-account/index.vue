@@ -4,11 +4,21 @@
       <Icon v-perm="'external-account:add'" class="icon" icon="ion:add-outline" width="23" height="23" @click="openAdd"/>
       <Icon v-perm="'external-account:add'" class="icon" icon="solar:import-outline" width="21" height="21" @click="openImport"/>
       <Icon v-perm="'external-account:query'" class="icon" :class="{disabled: selectedAccounts.length === 0}" icon="ion:download-outline" width="20" height="20" @click="exportSelected"/>
+      <Icon v-perm="'external-account:sync'" class="icon" :class="{disabled: selectedAccounts.length === 0 || batchSyncing, syncing: batchSyncing}" icon="ion:sync-outline" width="19" height="19" @click="syncSelectedAccounts"/>
       <Icon class="icon" icon="ion:reload" width="18" height="18" @click="loadList"/>
       <el-switch
           v-model="favertiveOnly"
           active-text="只看收藏"
           inactive-text="全部"
+          @change="loadList"
+      />
+      <el-date-picker
+          v-model="createTimeRange"
+          class="create-time-range"
+          type="daterange"
+          unlink-panels
+          start-placeholder="添加开始"
+          end-placeholder="添加结束"
           @change="loadList"
       />
     </div>
@@ -28,6 +38,7 @@
         </el-table-column>
         <el-table-column label="名称" prop="name" min-width="140"/>
         <el-table-column label="邮箱" prop="email" min-width="210"/>
+        <el-table-column label="备注" prop="remark" min-width="150"/>
         <el-table-column label="协议" width="90">
           <template #default="props">
             <el-tag :type="props.row.protocol === 'IMAP' ? 'success' : 'warning'">{{ props.row.protocol }}</el-tag>
@@ -67,6 +78,7 @@
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item v-perm="'external-account:set'" @click="openEdit(props.row)">编辑</el-dropdown-item>
+                    <el-dropdown-item v-perm="'external-account:sync'" @click="syncAccountAll(props.row)">全量同步</el-dropdown-item>
                     <el-dropdown-item v-perm="'external-account:delete'" @click="deleteAccount(props.row)">删除</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -81,6 +93,9 @@
       <el-form label-width="110px" class="account-form">
         <el-form-item label="邮箱地址">
           <el-input v-model="form.email" autocomplete="off"/>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="form.remark" autocomplete="off"/>
         </el-form-item>
         <el-form-item label="协议">
           <el-segmented v-model="form.protocol" :options="['IMAP', 'POP3']"/>
@@ -171,6 +186,9 @@
               placeholder="rrrfctege@aol.com----应用专用密码----4366847-4acf873f:eed4cadc-global-74672633-5m@gate.kookeey.info:1000&#10;user2@aol.com----应用专用密码"
           />
         </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="importForm.remark" autocomplete="off"/>
+        </el-form-item>
         <el-form-item v-if="importResult.length" label="导入结果">
           <div class="import-result">
             <div v-for="item in importResult" :key="item.email" :class="item.success ? 'success' : 'error'">
@@ -202,7 +220,7 @@ import {
   externalAccountUpdate
 } from "@/request/external-account.js";
 import {ElMessage, ElMessageBox} from "element-plus";
-import {tzDayjs} from "@/utils/day.js";
+import {toUtc, tzDayjs} from "@/utils/day.js";
 
 const accounts = ref([])
 const loading = ref(false)
@@ -213,7 +231,9 @@ const importSaving = ref(false)
 const testSaving = ref(false)
 const testingId = ref(0)
 const syncingId = ref(0)
+const batchSyncing = ref(false)
 const favertiveOnly = ref(false)
+const createTimeRange = ref(null)
 const importResult = ref([])
 const selectedAccounts = ref([])
 const importProgress = reactive({
@@ -234,6 +254,7 @@ function defaultForm() {
     externalAccountId: null,
     name: '',
     email: '',
+    remark: '',
     protocol: 'IMAP',
     imapHost: '',
     imapPort: 993,
@@ -261,6 +282,7 @@ function defaultImportForm() {
     popHost: '',
     popPort: 995,
     popSecure: true,
+    remark: '',
     content: ''
   }
 }
@@ -278,7 +300,11 @@ function resetImportForm() {
 
 function loadList() {
   loading.value = true
-  externalAccountList({isFavertive: favertiveOnly.value ? 1 : undefined}).then(data => {
+  externalAccountList({
+    isFavertive: favertiveOnly.value ? 1 : undefined,
+    createStartTime: createTimeRange.value ? toUtc(createTimeRange.value[0]).format('YYYY-MM-DD HH:mm:ss') : undefined,
+    createEndTime: createTimeRange.value ? toUtc(createTimeRange.value[1]).add(1, 'day').format('YYYY-MM-DD HH:mm:ss') : undefined
+  }).then(data => {
     accounts.value = data || []
     selectedAccounts.value = []
   }).finally(() => {
@@ -402,6 +428,7 @@ function buildImportPayload(row) {
     ...defaultForm(),
     name: row.email,
     email: row.email,
+    remark: importForm.remark,
     protocol: importForm.protocol,
     imapHost: importForm.imapHost.trim() || (domain ? `imap.${domain}` : ''),
     imapPort: importForm.imapPort,
@@ -487,6 +514,43 @@ function syncAccount(row) {
   }).finally(() => {
     syncingId.value = 0
   })
+}
+
+function syncAccountAll(row) {
+  ElMessageBox.confirm(`确认全量同步 ${row.email}？耗时取决于远程邮箱邮件数量。`, {
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    syncingId.value = row.externalAccountId
+    externalAccountSync(row.externalAccountId, 0).then(data => {
+      ElMessage({message: `全量同步完成，新增 ${data?.fetched || 0} 封，跳过 ${data?.skipped || 0} 封`, type: 'success', plain: true})
+      loadList()
+    }).finally(() => {
+      syncingId.value = 0
+    })
+  })
+}
+
+async function syncSelectedAccounts() {
+  if (selectedAccounts.value.length === 0 || batchSyncing.value) {
+    return
+  }
+  batchSyncing.value = true
+  let success = 0
+  let failed = 0
+  for (const row of selectedAccounts.value) {
+    try {
+      await externalAccountSync(row.externalAccountId, 5)
+      success++
+    } catch (e) {
+      console.error(e)
+      failed++
+    }
+  }
+  batchSyncing.value = false
+  ElMessage({message: `批量同步完成，成功 ${success} 个，失败 ${failed} 个`, type: failed ? 'warning' : 'success', plain: true})
+  loadList()
 }
 
 function toggleFavertive(row) {
@@ -583,11 +647,27 @@ function statusText(status) {
       opacity: 0.35;
       pointer-events: none;
     }
+    &.syncing {
+      animation: sync-rotate 0.8s linear infinite;
+    }
+  }
+}
+
+@keyframes sync-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 
 .star-icon {
   cursor: pointer;
+}
+
+.create-time-range {
+  width: 230px;
 }
 
 .table-scrollbar {

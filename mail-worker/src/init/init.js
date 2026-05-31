@@ -42,6 +42,7 @@ const dbInit = {
 				user_id INTEGER NOT NULL,
 				name TEXT NOT NULL,
 				email TEXT NOT NULL,
+				remark TEXT NOT NULL DEFAULT '',
 				protocol TEXT NOT NULL,
 				imap_host TEXT NOT NULL DEFAULT '',
 				imap_port INTEGER NOT NULL DEFAULT 993,
@@ -90,6 +91,7 @@ const dbInit = {
 			`ALTER TABLE email ADD COLUMN external_mailbox TEXT NOT NULL DEFAULT '';`,
 			`ALTER TABLE email ADD COLUMN sync_time DATETIME;`,
 			`ALTER TABLE external_account ADD COLUMN is_favertive INTEGER NOT NULL DEFAULT 0;`,
+			`ALTER TABLE external_account ADD COLUMN remark TEXT NOT NULL DEFAULT '';`,
 			`ALTER TABLE role ADD COLUMN external_account_count INTEGER;`
 		];
 

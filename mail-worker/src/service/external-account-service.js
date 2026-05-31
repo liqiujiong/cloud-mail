@@ -143,11 +143,18 @@ const externalAccountService = {
 		if (Number(params.isFavertive || params.is_favertive || 0) === 1) {
 			conditions.push(eq(externalAccount.isFavertive, 1));
 		}
+		if (params.createStartTime) {
+			conditions.push(sql`${externalAccount.createTime} >= ${params.createStartTime}`);
+		}
+		if (params.createEndTime) {
+			conditions.push(sql`${externalAccount.createTime} < ${params.createEndTime}`);
+		}
 		if (params.keyword) {
 			const keyword = `%${String(params.keyword).trim()}%`;
 			conditions.push(or(
 				sql`${externalAccount.email} COLLATE NOCASE LIKE ${keyword}`,
-				sql`${externalAccount.name} COLLATE NOCASE LIKE ${keyword}`
+				sql`${externalAccount.name} COLLATE NOCASE LIKE ${keyword}`,
+				sql`${externalAccount.remark} COLLATE NOCASE LIKE ${keyword}`
 			));
 		}
 		if (params.page || params.size || params.keyword) {
@@ -251,6 +258,7 @@ const externalAccountService = {
 			userId,
 			name: params.name || params.email,
 			email: params.email,
+			remark: params.remark || '',
 			protocol: normalizeProtocol(params.protocol),
 			imapHost: params.imapHost || '',
 			imapPort: Number(params.imapPort || 993),
@@ -363,7 +371,8 @@ const externalAccountService = {
 		}).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
 
 		try {
-			const limit = Math.min(Number(params.limit || 5), 20);
+			const requestedLimit = Number(params.limit ?? 5);
+			const limit = requestedLimit <= 0 ? 0 : Math.min(requestedLimit, 20);
 			const payload = await toNodePayload(c, row, limit);
 			const data = await callSyncService(c, '/sync/fetch', payload);
 			await this.updateSyncResult(c, row.externalAccountId, {
