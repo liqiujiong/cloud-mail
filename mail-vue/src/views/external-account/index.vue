@@ -6,11 +6,12 @@
       <Icon v-perm="'external-account:query'" class="icon" :class="{disabled: selectedAccounts.length === 0}" icon="ion:download-outline" width="20" height="20" @click="exportSelected"/>
       <Icon v-perm="'external-account:sync'" class="icon" :class="{disabled: selectedAccounts.length === 0 || batchSyncing, syncing: batchSyncing}" icon="ion:sync-outline" width="19" height="19" @click="syncSelectedAccounts"/>
       <Icon class="icon" icon="ion:reload" width="18" height="18" @click="loadList"/>
-      <el-switch
-          v-model="favertiveOnly"
-          active-text="只看收藏"
-          inactive-text="全部"
-          @change="loadList"
+      <Icon
+          class="icon favorite-filter"
+          :icon="favertiveOnly ? 'fluent-color:star-16' : 'solar:star-line-duotone'"
+          width="20"
+          height="20"
+          @click="toggleFavertiveFilter"
       />
       <el-date-picker
           v-model="createTimeRange"
@@ -359,6 +360,11 @@ function loadOwnerUsers(keyword = '') {
   }).finally(() => {
     ownerUserLoading.value = false
   })
+}
+
+function toggleFavertiveFilter() {
+  favertiveOnly.value = !favertiveOnly.value
+  loadList()
 }
 
 function openAdd() {
@@ -737,6 +743,10 @@ function statusText(status) {
 
 .star-icon {
   cursor: pointer;
+}
+
+.favorite-filter {
+  flex: 0 0 auto;
 }
 
 .create-time-range {
