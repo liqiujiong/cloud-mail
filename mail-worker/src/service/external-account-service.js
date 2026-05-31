@@ -316,7 +316,7 @@ const externalAccountService = {
 				const auth = row.proxyUsername ? `${row.proxyUsername}:${proxyPassword}@` : '';
 				proxy = `${auth}${row.proxyHost}:${row.proxyPort || 0}`;
 			}
-			lines.push([row.email, password, proxy].join('----'));
+			lines.push(proxy ? [row.email, password, proxy].join('----') : [row.email, password].join('----'));
 		}
 		return { content: lines.join('\n') };
 	},
