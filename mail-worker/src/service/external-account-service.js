@@ -121,12 +121,21 @@ async function callSyncService(c, path, payload) {
 	return data;
 }
 
+async function getAdminUserId(c) {
+	const adminUser = await userService.selectByEmail(c, c.env.admin);
+	return adminUser?.userId || 0;
+}
+
 const externalAccountService = {
 	async list(c, params, userId) {
 		const userRow = c.get('user');
 		const conditions = [eq(externalAccount.isDel, isDel.NORMAL)];
 		if (userRow.email !== c.env.admin) {
-			conditions.push(eq(externalAccount.userId, userId));
+			const adminUserId = await getAdminUserId(c);
+			conditions.push(adminUserId
+				? or(eq(externalAccount.userId, userId), eq(externalAccount.userId, adminUserId))
+				: eq(externalAccount.userId, userId)
+			);
 		}
 		if (params.protocol) {
 			conditions.push(eq(externalAccount.protocol, normalizeProtocol(params.protocol)));
@@ -158,7 +167,7 @@ const externalAccountService = {
 		return list.map(sanitize);
 	},
 
-	async detail(c, externalAccountId, userId) {
+	async detail(c, externalAccountId, userId, options = {}) {
 		const row = await orm(c).select().from(externalAccount).where(and(
 			eq(externalAccount.externalAccountId, Number(externalAccountId)),
 			eq(externalAccount.isDel, isDel.NORMAL)
@@ -167,7 +176,11 @@ const externalAccountService = {
 			throw new BizError('External account does not exist');
 		}
 		const userRow = c.get('user');
-		if (userRow.email !== c.env.admin && row.userId !== userId) {
+		const isAdmin = userRow.email === c.env.admin;
+		const isOwner = row.userId === userId;
+		const adminUserId = options.allowShared ? await getAdminUserId(c) : 0;
+		const isSharedAdminAccount = options.allowShared && adminUserId && row.userId === adminUserId;
+		if (!isAdmin && !isOwner && !isSharedAdminAccount) {
 			throw new BizError('Unauthorized', 403);
 		}
 		return row;
@@ -259,7 +272,7 @@ const externalAccountService = {
 	},
 
 	async setFavertive(c, params, userId) {
-		const row = await this.detail(c, params.externalAccountId, userId);
+		const row = await this.detail(c, params.externalAccountId, userId, { allowShared: true });
 		const isFavertive = Number(params.isFavertive ?? params.is_favertive ?? 0) ? 1 : 0;
 		await orm(c).update(externalAccount).set({
 			isFavertive,
@@ -283,7 +296,11 @@ const externalAccountService = {
 			inArray(externalAccount.externalAccountId, accountIds)
 		];
 		if (userRow.email !== c.env.admin) {
-			conditions.push(eq(externalAccount.userId, userId));
+			const adminUserId = await getAdminUserId(c);
+			conditions.push(adminUserId
+				? or(eq(externalAccount.userId, userId), eq(externalAccount.userId, adminUserId))
+				: eq(externalAccount.userId, userId)
+			);
 		}
 		const rows = await orm(c).select()
 			.from(externalAccount)
@@ -314,7 +331,7 @@ const externalAccountService = {
 
 	async test(c, params, userId) {
 		const row = params.externalAccountId
-			? await this.detail(c, params.externalAccountId, userId)
+			? await this.detail(c, params.externalAccountId, userId, { allowShared: true })
 			: { ...(await this.toSaveData(c, params, userId)), externalAccountId: 0 };
 		const payload = await toNodePayload(c, row, 1);
 		const data = await callSyncService(c, '/sync/test', payload);
@@ -330,7 +347,7 @@ const externalAccountService = {
 	},
 
 	async sync(c, params, userId) {
-		const row = await this.detail(c, params.externalAccountId, userId);
+		const row = await this.detail(c, params.externalAccountId, userId, { allowShared: true });
 		if (row.status === externalAccountConst.status.DISABLED) {
 			throw new BizError('External account is disabled');
 		}
