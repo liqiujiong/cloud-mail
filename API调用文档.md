@@ -47,7 +47,7 @@ Content-Type: application/json
 
 ```json
 {
-  "email": "admin@zhongwenmj.com",
+  "email": "user@zhongwenmj.com",
   "size": 5
 }
 ```
@@ -57,14 +57,12 @@ Content-Type: application/json
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `email` | string | 是 | - | 要取件的邮箱地址，可以是内部邮箱或外部邮箱 |
-| `toEmail` | string | 否 | - | 兼容字段，作用同 `email`；如果同时传，以 `email` 为准 |
-| `externalAccountId` | number | 否 | - | 指定外部邮箱账号 ID；传入时会校验该账号邮箱必须等于 `email` |
 | `size` | number | 否 | 5 | 返回最近多少封邮件，当前接口有最大值限制 |
 | `type` | number | 否 | 0 | 邮件类型，`0` 表示收件 |
 | `isDel` | number | 否 | 0 | 删除状态，`0` 表示正常邮件 |
 | `timeSort` | string | 否 | `desc` | 排序方向，传 `asc` 表示升序 |
 
-`email` 必填。`externalAccountId` 只是用于精确指定外部账号，不能替代 `email`。
+`email` 必填。公开取件接口只按邮箱地址判断邮箱类型，不需要传外部账号 ID。
 
 ## 3. curl 示例
 
@@ -74,16 +72,16 @@ Content-Type: application/json
 curl 'https://mail.zhongwenmj.com/api/public/mailboxEmailList' \
   -H 'Authorization: <PUBLIC_TOKEN>' \
   -H 'Content-Type: application/json' \
-  --data-raw '{"email":"admin@zhongwenmj.com","size":5}'
+  --data-raw '{"email":"user@zhongwenmj.com","size":5}'
 ```
 
-按外部账号 ID 取最近 5 封：
+按外部邮箱地址取最近 5 封：
 
 ```bash
 curl 'https://mail.zhongwenmj.com/api/public/mailboxEmailList' \
   -H 'Authorization: <PUBLIC_TOKEN>' \
   -H 'Content-Type: application/json' \
-  --data-raw '{"email":"target@example.com","externalAccountId":123,"size":5}'
+  --data-raw '{"email":"target@example.com","size":5}'
 ```
 
 取最近 1 封，适合验证码轮询：
@@ -180,7 +178,7 @@ curl 'https://mail.zhongwenmj.com/api/public/mailboxEmailList' \
 
 如果传入的是内部邮箱：
 
-- 判断条件：邮箱后缀属于系统域名，例如 `zhongwenmj.com`。
+- 判断条件：邮箱后缀命中系统配置的自营域名列表，例如当前生产配置包含 `zhongwenmj.com`。如果后续配置多个自营域名，任意一个命中都按内部邮箱处理。
 - 内部邮箱默认按存在处理，不要求先在系统账号列表中创建。
 - 系统不会触发外部同步。
 - 直接按收件人邮箱查询最近邮件。
@@ -239,7 +237,7 @@ curl 'https://mail.zhongwenmj.com/api/public/mailboxEmailList' \
 }
 ```
 
-如果没有传 `email` / `toEmail`，接口会返回错误：
+如果没有传 `email`，接口会返回错误：
 
 ```json
 {

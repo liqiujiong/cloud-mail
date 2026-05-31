@@ -97,8 +97,7 @@ const publicService = {
 	},
 
 	async mailboxEmailList(c, params) {
-		const mailboxEmail = String(params.email || params.toEmail || '').trim();
-		const externalAccountId = Number(params.externalAccountId || 0);
+		const mailboxEmail = String(params.email || '').trim();
 		const size = Math.min(Math.max(Number(params.size || 5), 1), 50);
 		const type = params.type ?? emailConst.type.RECEIVE;
 		const mailIsDel = params.isDel ?? isDel.NORMAL;
@@ -108,18 +107,10 @@ const publicService = {
 			throw new BizError('email is required');
 		}
 
-		if (externalAccountId) {
-			externalAccountRow = await orm(c).select().from(externalAccount).where(and(
-				eq(externalAccount.externalAccountId, externalAccountId),
-				sql`${externalAccount.email} COLLATE NOCASE = ${mailboxEmail}`,
-				eq(externalAccount.isDel, isDel.NORMAL)
-			)).get();
-		} else {
-			externalAccountRow = await orm(c).select().from(externalAccount).where(and(
-				sql`${externalAccount.email} COLLATE NOCASE = ${mailboxEmail}`,
-				eq(externalAccount.isDel, isDel.NORMAL)
-			)).get();
-		}
+		externalAccountRow = await orm(c).select().from(externalAccount).where(and(
+			sql`${externalAccount.email} COLLATE NOCASE = ${mailboxEmail}`,
+			eq(externalAccount.isDel, isDel.NORMAL)
+		)).get();
 
 		if (externalAccountRow) {
 			c.set('user', { email: c.env.admin });

@@ -78,6 +78,11 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column label="邮件数量" width="100">
+          <template #default="props">
+            <span>{{ props.row.mailCount || 0 }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="245" fixed="right">
           <template #default="props">
             <div class="row-actions">

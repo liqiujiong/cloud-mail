@@ -171,7 +171,11 @@ const externalAccountService = {
 					.where(and(...conditions))
 					.get()
 				: await orm(c).select({ total: count() }).from(externalAccount).where(and(...conditions)).get();
-			const list = await orm(c).select({ ...externalAccount, ownerEmail: user.email })
+			const list = await orm(c).select({
+				...externalAccount,
+				ownerEmail: user.email,
+				mailCount: sql`(SELECT COUNT(*) FROM email WHERE email.external_account_id = ${externalAccount.externalAccountId} AND email.is_del = ${isDel.NORMAL})`.as('mailCount')
+			})
 				.from(externalAccount)
 				.leftJoin(user, eq(externalAccount.userId, user.userId))
 				.where(and(...conditions))
@@ -181,7 +185,11 @@ const externalAccountService = {
 				.all();
 			return { list: list.map(sanitize), total: totalRow.total };
 		}
-		const list = await orm(c).select({ ...externalAccount, ownerEmail: user.email })
+		const list = await orm(c).select({
+			...externalAccount,
+			ownerEmail: user.email,
+			mailCount: sql`(SELECT COUNT(*) FROM email WHERE email.external_account_id = ${externalAccount.externalAccountId} AND email.is_del = ${isDel.NORMAL})`.as('mailCount')
+		})
 			.from(externalAccount)
 			.leftJoin(user, eq(externalAccount.userId, user.userId))
 			.where(and(...conditions))
