@@ -125,7 +125,7 @@
         </el-form-item>
         <template v-if="form.protocol === 'IMAP'">
           <el-form-item label="IMAP Host">
-            <el-input v-model="form.imapHost" autocomplete="off"/>
+            <el-input v-model="form.imapHost" autocomplete="off" placeholder="输入邮箱地址后自动匹配预设配置"/>
           </el-form-item>
           <el-form-item label="IMAP Port">
             <el-input-number v-model="form.imapPort" :min="1" :max="65535"/>
@@ -137,7 +137,7 @@
         </template>
         <template v-else>
           <el-form-item label="POP3 Host">
-            <el-input v-model="form.popHost" autocomplete="off"/>
+            <el-input v-model="form.popHost" autocomplete="off" placeholder="输入邮箱地址后自动匹配预设配置"/>
           </el-form-item>
           <el-form-item label="POP3 Port">
             <el-input-number v-model="form.popPort" :min="1" :max="65535"/>
@@ -182,7 +182,7 @@
         </el-form-item>
         <template v-if="importForm.protocol === 'IMAP'">
           <el-form-item label="IMAP Host">
-            <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="留空则按邮箱域名自动生成"/>
+            <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="留空则按邮箱域名匹配预设配置"/>
           </el-form-item>
           <el-form-item label="IMAP Port">
             <el-input-number v-model="importForm.imapPort" :min="1" :max="65535"/>
@@ -194,7 +194,7 @@
         </template>
         <template v-else>
           <el-form-item label="POP3 Host">
-            <el-input v-model="importForm.popHost" autocomplete="off" placeholder="留空则按邮箱域名自动生成"/>
+            <el-input v-model="importForm.popHost" autocomplete="off" placeholder="留空则按邮箱域名匹配预设配置"/>
           </el-form-item>
           <el-form-item label="POP3 Port">
             <el-input-number v-model="importForm.popPort" :min="1" :max="65535"/>
@@ -268,6 +268,52 @@ const importProgress = reactive({
 
 const form = reactive(defaultForm())
 const importForm = reactive(defaultImportForm())
+const autoFilledServer = reactive({
+  protocol: '',
+  host: ''
+})
+
+const incomingServerPresets = {
+  'hotmail.com': {
+    IMAP: {host: 'outlook.office365.com', port: 993, secure: true}
+  },
+  'yahoo.com': {
+    IMAP: {host: 'imap.mail.yahoo.com', port: 993, secure: true}
+  },
+  'aol.com': {
+    IMAP: {host: 'export.imap.aol.com', port: 993, secure: true}
+  },
+  'zoho.com': {
+    IMAP: {host: 'imap.zoho.com', port: 993, secure: true},
+    POP3: {host: 'pop.zoho.com', port: 995, secure: true}
+  },
+  'zohomail.eu': {
+    IMAP: {host: 'imap.zoho.eu', port: 993, secure: true},
+    POP3: {host: 'pop.zoho.eu', port: 995, secure: true}
+  },
+  'zohomail.in': {
+    IMAP: {host: 'imap.zoho.in', port: 993, secure: true},
+    POP3: {host: 'pop.zoho.in', port: 995, secure: true}
+  },
+  'zohomail.com.au': {
+    IMAP: {host: 'imap.zoho.com.au', port: 993, secure: true},
+    POP3: {host: 'pop.zoho.com.au', port: 995, secure: true}
+  },
+  'vfemail.net': {
+    IMAP: {host: 'NL101.vfemail.net', port: 993, secure: true},
+    POP3: {host: 'NL101.vfemail.net', port: 995, secure: true}
+  },
+  'rambler.ru': {
+    IMAP: {host: 'imap.rambler.ru', port: 993, secure: true},
+    POP3: {host: 'pop.rambler.ru', port: 995, secure: true}
+  },
+  'gmail.com': {
+    IMAP: {host: 'imap.gmail.com', port: 993, secure: true}
+  },
+  'gmx.com': {
+    IMAP: {host: 'imap.gmx.com', port: 993, secure: true}
+  }
+}
 
 loadList()
 
@@ -314,6 +360,7 @@ function defaultImportForm() {
 
 function resetForm() {
   Object.assign(form, defaultForm())
+  resetAutoFilledServer()
 }
 
 function resetImportForm() {
@@ -355,6 +402,7 @@ function openImport() {
 }
 
 function openEdit(row) {
+  resetAutoFilledServer()
   Object.assign(form, {
     ...defaultForm(),
     ...row,
@@ -371,17 +419,58 @@ function getEmailDomain(email) {
   return domain && domain.includes('.') ? domain.toLowerCase() : ''
 }
 
+function resetAutoFilledServer() {
+  autoFilledServer.protocol = ''
+  autoFilledServer.host = ''
+}
+
+function getIncomingConfig(domain, protocol) {
+  const preset = incomingServerPresets[domain]?.[protocol]
+  if (preset) {
+    return preset
+  }
+  if (!domain) {
+    return null
+  }
+  return {
+    host: `${protocol === 'POP3' ? 'pop' : 'imap'}.${domain}`,
+    port: protocol === 'POP3' ? 995 : 993,
+    secure: true
+  }
+}
+
+function setIncomingConfig(target, protocol, config) {
+  if (!config) {
+    return
+  }
+  if (protocol === 'POP3') {
+    target.popHost = config.host
+    target.popPort = config.port
+    target.popSecure = config.secure
+    return
+  }
+  target.imapHost = config.host
+  target.imapPort = config.port
+  target.imapSecure = config.secure
+}
+
+function hasManualServerConfig() {
+  const host = form.protocol === 'POP3' ? form.popHost : form.imapHost
+  return host.trim() && (autoFilledServer.protocol !== form.protocol || autoFilledServer.host !== host)
+}
+
 function fillServerHostByEmail() {
+  if (form.externalAccountId || hasManualServerConfig()) {
+    return
+  }
   const domain = getEmailDomain(form.email)
   if (!domain) {
     return
   }
-  if (form.protocol === 'IMAP' && !form.imapHost.trim()) {
-    form.imapHost = `imap.${domain}`
-  }
-  if (form.protocol === 'POP3' && !form.popHost.trim()) {
-    form.popHost = `pop.${domain}`
-  }
+  const config = getIncomingConfig(domain, form.protocol)
+  setIncomingConfig(form, form.protocol, config)
+  autoFilledServer.protocol = form.protocol
+  autoFilledServer.host = config?.host || ''
 }
 
 function saveForm() {
@@ -456,17 +545,18 @@ function parseProxy(value) {
 
 function buildImportPayload(row) {
   const domain = getEmailDomain(row.email)
-  return {
+  const config = getIncomingConfig(domain, importForm.protocol)
+  const payload = {
     ...defaultForm(),
     name: row.email,
     email: row.email,
     remark: importForm.remark,
     protocol: importForm.protocol,
-    imapHost: importForm.imapHost.trim() || (domain ? `imap.${domain}` : ''),
+    imapHost: importForm.imapHost.trim(),
     imapPort: importForm.imapPort,
     imapSecure: importForm.imapSecure,
     imapMailbox: importForm.imapMailbox,
-    popHost: importForm.popHost.trim() || (domain ? `pop.${domain}` : ''),
+    popHost: importForm.popHost.trim(),
     popPort: importForm.popPort,
     popSecure: importForm.popSecure,
     username: row.email,
@@ -475,6 +565,17 @@ function buildImportPayload(row) {
     proxyPort: row.proxy.port,
     proxyUsername: row.proxy.username,
     proxyPassword: row.proxy.password
+  }
+  if (importForm.protocol === 'IMAP' && !payload.imapHost) {
+    setIncomingConfig(payload, importForm.protocol, config)
+  }
+  if (importForm.protocol === 'POP3' && !payload.popHost) {
+    setIncomingConfig(payload, importForm.protocol, config)
+  }
+  return {
+    ...payload,
+    imapHost: payload.imapHost || (domain ? `imap.${domain}` : ''),
+    popHost: payload.popHost || (domain ? `pop.${domain}` : '')
   }
 }
 
