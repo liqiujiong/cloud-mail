@@ -144,8 +144,8 @@ const externalAccountService = {
 		if (Number(params.isFavertive || params.is_favertive || 0) === 1) {
 			conditions.push(eq(externalAccount.isFavertive, 1));
 		}
-		if (params.userId) {
-			conditions.push(eq(externalAccount.userId, Number(params.userId)));
+		if (params.ownerEmail) {
+			conditions.push(sql`${user.email} COLLATE NOCASE LIKE ${`%${String(params.ownerEmail).trim()}%`}`);
 		}
 		if (params.createStartTime) {
 			conditions.push(sql`${externalAccount.createTime} >= ${params.createStartTime}`);
@@ -164,7 +164,13 @@ const externalAccountService = {
 		if (params.page || params.size || params.keyword) {
 			const page = Math.max(Number(params.page || 1), 1);
 			const size = Math.min(Math.max(Number(params.size || 50), 1), 100);
-			const totalRow = await orm(c).select({ total: count() }).from(externalAccount).where(and(...conditions)).get();
+			const totalRow = params.ownerEmail
+				? await orm(c).select({ total: count() })
+					.from(externalAccount)
+					.leftJoin(user, eq(externalAccount.userId, user.userId))
+					.where(and(...conditions))
+					.get()
+				: await orm(c).select({ total: count() }).from(externalAccount).where(and(...conditions)).get();
 			const list = await orm(c).select({ ...externalAccount, ownerEmail: user.email })
 				.from(externalAccount)
 				.leftJoin(user, eq(externalAccount.userId, user.userId))

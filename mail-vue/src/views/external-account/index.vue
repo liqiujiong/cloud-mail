@@ -22,25 +22,14 @@
           end-placeholder="添加结束"
           @change="loadList"
       />
-      <el-select
-          v-model="ownerUserId"
+      <el-input
+          v-model="ownerEmail"
           class="owner-select"
           placeholder="归属用户"
           clearable
-          filterable
-          remote
-          reserve-keyword
-          :remote-method="loadOwnerUsers"
-          :loading="ownerUserLoading"
-          @change="loadList"
-      >
-        <el-option
-            v-for="item in ownerUsers"
-            :key="item.userId"
-            :label="item.email"
-            :value="item.userId"
-        />
-      </el-select>
+          @keyup.enter="loadList"
+          @clear="loadList"
+      />
     </div>
     <el-scrollbar class="table-scrollbar">
       <el-table :data="accounts" v-loading="loading" style="height: 100%" :empty-text="''" @selection-change="selectedAccounts = $event">
@@ -242,7 +231,6 @@ import {
 } from "@/request/external-account.js";
 import {ElMessage, ElMessageBox} from "element-plus";
 import {toUtc, tzDayjs} from "@/utils/day.js";
-import {userList} from "@/request/user.js";
 
 const accounts = ref([])
 const loading = ref(false)
@@ -256,9 +244,7 @@ const syncingId = ref(0)
 const batchSyncing = ref(false)
 const favertiveOnly = ref(false)
 const createTimeRange = ref(null)
-const ownerUserId = ref(null)
-const ownerUsers = ref([])
-const ownerUserLoading = ref(false)
+const ownerEmail = ref('')
 const importResult = ref([])
 const selectedAccounts = ref([])
 const importProgress = reactive({
@@ -270,7 +256,6 @@ const form = reactive(defaultForm())
 const importForm = reactive(defaultImportForm())
 
 loadList()
-loadOwnerUsers()
 
 watch(() => form.email, fillServerHostByEmail)
 watch(() => form.protocol, fillServerHostByEmail)
@@ -328,37 +313,14 @@ function loadList() {
   loading.value = true
   externalAccountList({
     isFavertive: favertiveOnly.value ? 1 : undefined,
-    userId: ownerUserId.value || undefined,
+    ownerEmail: ownerEmail.value.trim() || undefined,
     createStartTime: createTimeRange.value ? toUtc(createTimeRange.value[0]).format('YYYY-MM-DD HH:mm:ss') : undefined,
     createEndTime: createTimeRange.value ? toUtc(createTimeRange.value[1]).add(1, 'day').format('YYYY-MM-DD HH:mm:ss') : undefined
   }).then(data => {
     accounts.value = data || []
     selectedAccounts.value = []
-    mergeOwnerUsers(accounts.value)
   }).finally(() => {
     loading.value = false
-  })
-}
-
-function mergeOwnerUsers(list) {
-  const map = new Map(ownerUsers.value.map(item => [item.userId, item]))
-  for (const row of list || []) {
-    if (row.userId && row.ownerEmail) {
-      map.set(row.userId, {userId: row.userId, email: row.ownerEmail})
-    }
-  }
-  ownerUsers.value = Array.from(map.values())
-}
-
-function loadOwnerUsers(keyword = '') {
-  ownerUserLoading.value = true
-  userList({num: 1, size: 50, email: String(keyword || '').trim(), status: -1}).then(data => {
-    ownerUsers.value = (data?.list || []).map(item => ({userId: item.userId, email: item.email}))
-    mergeOwnerUsers(accounts.value)
-  }).catch(() => {
-    mergeOwnerUsers(accounts.value)
-  }).finally(() => {
-    ownerUserLoading.value = false
   })
 }
 
