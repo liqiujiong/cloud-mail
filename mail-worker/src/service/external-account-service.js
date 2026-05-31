@@ -148,6 +148,9 @@ const externalAccountService = {
 		if (params.protocol) {
 			conditions.push(eq(externalAccount.protocol, normalizeProtocol(params.protocol)));
 		}
+		if (params.status) {
+			conditions.push(eq(externalAccount.status, String(params.status).trim()));
+		}
 		if (Number(params.isFavertive || params.is_favertive || 0) === 1) {
 			conditions.push(eq(externalAccount.isFavertive, 1));
 		}
@@ -174,7 +177,7 @@ const externalAccountService = {
 		if (params.remark) {
 			conditions.push(sql`${externalAccount.remark} COLLATE NOCASE LIKE ${`%${String(params.remark).trim()}%`}`);
 		}
-		if (params.page || params.size || params.keyword || params.email || params.remark) {
+		if (params.page || params.size || params.keyword || params.email || params.remark || params.status) {
 			const page = Math.max(Number(params.page || 1), 1);
 			const size = Math.min(Math.max(Number(params.size || 50), 1), 100);
 			const totalRow = params.ownerEmail

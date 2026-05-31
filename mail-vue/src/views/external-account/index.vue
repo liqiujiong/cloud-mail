@@ -11,8 +11,8 @@
           class="keyword-input"
           placeholder="模糊搜索邮箱"
           clearable
-          @keyup.enter="loadList"
-          @clear="loadList"
+          @keyup.enter="searchList"
+          @clear="searchList"
       />
       <Icon
           class="icon favorite-filter"
@@ -26,9 +26,19 @@
           class="remark-input"
           placeholder="搜索备注"
           clearable
-          @keyup.enter="loadList"
-          @clear="loadList"
+          @keyup.enter="searchList"
+          @clear="searchList"
       />
+      <el-select
+          v-model="statusFilter"
+          class="status-select"
+          placeholder="状态"
+          clearable
+          @change="searchList"
+          @clear="searchList"
+      >
+        <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value"/>
+      </el-select>
       <el-date-picker
           v-model="createTimeRange"
           class="create-time-range"
@@ -36,15 +46,15 @@
           unlink-panels
           start-placeholder="添加开始"
           end-placeholder="添加结束"
-          @change="loadList"
+          @change="searchList"
       />
       <el-input
           v-model="ownerEmail"
           class="owner-select"
           placeholder="归属用户"
           clearable
-          @keyup.enter="loadList"
-          @clear="loadList"
+          @keyup.enter="searchList"
+          @clear="searchList"
       />
     </div>
     <el-scrollbar class="table-scrollbar">
@@ -119,6 +129,18 @@
         </el-table-column>
       </el-table>
     </el-scrollbar>
+    <div class="pagination-bar">
+      <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.size"
+          :page-sizes="[20, 50, 100]"
+          :total="pagination.total"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          @size-change="handlePageSizeChange"
+          @current-change="loadList"
+      />
+    </div>
 
     <el-dialog v-model="formShow" :title="form.externalAccountId ? '编辑外部邮箱' : '添加外部邮箱'" width="620px" @closed="resetForm">
       <el-form label-width="110px" class="account-form">
@@ -266,6 +288,7 @@ const batchSyncing = ref(false)
 const favertiveOnly = ref(false)
 const emailKeyword = ref('')
 const remarkKeyword = ref('')
+const statusFilter = ref('')
 const createTimeRange = ref(null)
 const ownerEmail = ref('')
 const importResult = ref([])
@@ -274,6 +297,21 @@ const importProgress = reactive({
   done: 0,
   total: 0
 })
+const pagination = reactive({
+  page: 1,
+  size: 50,
+  total: 0
+})
+
+const statusOptions = [
+  {label: '正常', value: 'normal'},
+  {label: '禁用', value: 'disabled'},
+  {label: '测试失败', value: 'test_failed'},
+  {label: '同步失败', value: 'sync_failed'},
+  {label: '代理失败', value: 'proxy_failed'},
+  {label: '登录失败', value: 'login_failed'},
+  {label: '风控异常', value: 'security_check_required'}
+]
 
 const form = reactive(defaultForm())
 const importForm = reactive(defaultImportForm())
@@ -382,23 +420,37 @@ function resetImportForm() {
 function loadList() {
   loading.value = true
   externalAccountList({
+    page: pagination.page,
+    size: pagination.size,
     email: emailKeyword.value.trim() || undefined,
     remark: remarkKeyword.value.trim() || undefined,
+    status: statusFilter.value || undefined,
     isFavertive: favertiveOnly.value ? 1 : undefined,
     ownerEmail: ownerEmail.value.trim() || undefined,
     createStartTime: createTimeRange.value ? toUtc(createTimeRange.value[0]).format('YYYY-MM-DD HH:mm:ss') : undefined,
     createEndTime: createTimeRange.value ? toUtc(createTimeRange.value[1]).add(1, 'day').format('YYYY-MM-DD HH:mm:ss') : undefined
   }).then(data => {
     accounts.value = Array.isArray(data) ? data : (data?.list || [])
+    pagination.total = Array.isArray(data) ? accounts.value.length : (data?.total || 0)
     selectedAccounts.value = []
   }).finally(() => {
     loading.value = false
   })
 }
 
+function searchList() {
+  pagination.page = 1
+  loadList()
+}
+
+function handlePageSizeChange() {
+  pagination.page = 1
+  loadList()
+}
+
 function toggleFavertiveFilter() {
   favertiveOnly.value = !favertiveOnly.value
-  loadList()
+  searchList()
 }
 
 function openAdd() {
@@ -819,8 +871,9 @@ function statusText(status) {
 .header-actions {
   padding: 9px 15px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20px;
+  gap: 10px 14px;
   box-shadow: var(--header-actions-border);
   .icon {
     cursor: pointer;
@@ -852,23 +905,36 @@ function statusText(status) {
 }
 
 .keyword-input {
-  width: 220px;
-}
-
-.remark-input {
   width: 180px;
 }
 
+.remark-input {
+  width: 150px;
+}
+
+.status-select {
+  width: 120px;
+}
+
 .create-time-range {
-  width: 230px;
+  width: 220px;
 }
 
 .owner-select {
-  width: 190px;
+  width: 160px;
 }
 
 .table-scrollbar {
-  height: calc(100% - 42px);
+  height: calc(100% - 136px);
+}
+
+.pagination-bar {
+  height: 52px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 15px;
+  box-shadow: var(--header-actions-border);
 }
 
 .row-actions {
