@@ -21,6 +21,25 @@
           end-placeholder="添加结束"
           @change="loadList"
       />
+      <el-select
+          v-model="ownerUserId"
+          class="owner-select"
+          placeholder="归属用户"
+          clearable
+          filterable
+          remote
+          reserve-keyword
+          :remote-method="loadOwnerUsers"
+          :loading="ownerUserLoading"
+          @change="loadList"
+      >
+        <el-option
+            v-for="item in ownerUsers"
+            :key="item.userId"
+            :label="item.email"
+            :value="item.userId"
+        />
+      </el-select>
     </div>
     <el-scrollbar class="table-scrollbar">
       <el-table :data="accounts" v-loading="loading" style="height: 100%" :empty-text="''" @selection-change="selectedAccounts = $event">
@@ -59,6 +78,7 @@
             <el-tag :type="props.row.status === 'normal' ? 'success' : 'danger'">{{ statusText(props.row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="归属用户" prop="ownerEmail" min-width="180"/>
         <el-table-column label="最近同步" min-width="170">
           <template #default="props">
             <div class="sync-result">
@@ -151,7 +171,7 @@
           type="info"
           show-icon
           :closable="false"
-          title="每行一个账号，格式：邮箱----密码----SOCKS5代理。代理格式：用户名:密码@host:端口；代理可留空。"
+          title="每行一个账号，格式：邮箱----密码----SOCKS5代理。已存在账号会更新；代理格式：用户名:密码@host:端口；代理可留空。"
       />
       <el-form label-width="110px" class="account-form import-form">
         <el-form-item label="协议">
@@ -221,6 +241,7 @@ import {
 } from "@/request/external-account.js";
 import {ElMessage, ElMessageBox} from "element-plus";
 import {toUtc, tzDayjs} from "@/utils/day.js";
+import {userList} from "@/request/user.js";
 
 const accounts = ref([])
 const loading = ref(false)
@@ -234,6 +255,9 @@ const syncingId = ref(0)
 const batchSyncing = ref(false)
 const favertiveOnly = ref(false)
 const createTimeRange = ref(null)
+const ownerUserId = ref(null)
+const ownerUsers = ref([])
+const ownerUserLoading = ref(false)
 const importResult = ref([])
 const selectedAccounts = ref([])
 const importProgress = reactive({
@@ -245,6 +269,7 @@ const form = reactive(defaultForm())
 const importForm = reactive(defaultImportForm())
 
 loadList()
+loadOwnerUsers()
 
 watch(() => form.email, fillServerHostByEmail)
 watch(() => form.protocol, fillServerHostByEmail)
@@ -302,13 +327,37 @@ function loadList() {
   loading.value = true
   externalAccountList({
     isFavertive: favertiveOnly.value ? 1 : undefined,
+    userId: ownerUserId.value || undefined,
     createStartTime: createTimeRange.value ? toUtc(createTimeRange.value[0]).format('YYYY-MM-DD HH:mm:ss') : undefined,
     createEndTime: createTimeRange.value ? toUtc(createTimeRange.value[1]).add(1, 'day').format('YYYY-MM-DD HH:mm:ss') : undefined
   }).then(data => {
     accounts.value = data || []
     selectedAccounts.value = []
+    mergeOwnerUsers(accounts.value)
   }).finally(() => {
     loading.value = false
+  })
+}
+
+function mergeOwnerUsers(list) {
+  const map = new Map(ownerUsers.value.map(item => [item.userId, item]))
+  for (const row of list || []) {
+    if (row.userId && row.ownerEmail) {
+      map.set(row.userId, {userId: row.userId, email: row.ownerEmail})
+    }
+  }
+  ownerUsers.value = Array.from(map.values())
+}
+
+function loadOwnerUsers(keyword = '') {
+  ownerUserLoading.value = true
+  userList({num: 1, size: 50, email: String(keyword || '').trim(), status: -1}).then(data => {
+    ownerUsers.value = (data?.list || []).map(item => ({userId: item.userId, email: item.email}))
+    mergeOwnerUsers(accounts.value)
+  }).catch(() => {
+    mergeOwnerUsers(accounts.value)
+  }).finally(() => {
+    ownerUserLoading.value = false
   })
 }
 
@@ -446,6 +495,17 @@ function buildImportPayload(row) {
   }
 }
 
+async function findExistingImportAccount(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  const current = accounts.value.find(item => String(item.email || '').toLowerCase() === normalizedEmail)
+  if (current) {
+    return current
+  }
+  const data = await externalAccountList({page: 1, size: 10, keyword: email})
+  const list = Array.isArray(data) ? data : (data?.list || [])
+  return list.find(item => String(item.email || '').toLowerCase() === normalizedEmail)
+}
+
 async function saveImport() {
   const rows = parseImportRows()
   if (rows.length === 0) {
@@ -453,7 +513,7 @@ async function saveImport() {
     return
   }
 
-  const invalid = rows.find(row => !row.email || !row.password)
+  const invalid = rows.find(row => !row.email)
   if (invalid) {
     ElMessage({message: `第 ${invalid.index} 行格式错误`, type: 'error', plain: true})
     return
@@ -472,8 +532,21 @@ async function saveImport() {
 
   for (const row of rows) {
     try {
-      await externalAccountAdd(buildImportPayload(row))
-      importResult.value.push({email: row.email, success: true, message: '成功'})
+      const existing = await findExistingImportAccount(row.email)
+      if (existing) {
+        await externalAccountUpdate({
+          ...buildImportPayload(row),
+          externalAccountId: existing.externalAccountId,
+          isFavertive: existing.isFavertive,
+          status: existing.status
+        })
+        importResult.value.push({email: row.email, success: true, message: '已更新'})
+      } else if (!row.password) {
+        importResult.value.push({email: row.email, success: false, message: '新账号必须填写密码'})
+      } else {
+        await externalAccountAdd(buildImportPayload(row))
+        importResult.value.push({email: row.email, success: true, message: '已新增'})
+      }
     } catch (e) {
       importResult.value.push({email: row.email, success: false, message: e.message || '失败'})
     } finally {
@@ -668,6 +741,10 @@ function statusText(status) {
 
 .create-time-range {
   width: 230px;
+}
+
+.owner-select {
+  width: 190px;
 }
 
 .table-scrollbar {

@@ -3,6 +3,7 @@ import externalAccount from '../entity/external-account';
 import externalMailUid from '../entity/external-mail-uid';
 import { and, count, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { emailConst, externalAccountConst, isDel } from '../const/entity-const';
+import user from '../entity/user';
 import BizError from '../error/biz-error';
 import secretCryptoUtils from '../utils/secret-crypto-utils';
 import mailReceiveService from './mail-receive-service';
@@ -143,6 +144,9 @@ const externalAccountService = {
 		if (Number(params.isFavertive || params.is_favertive || 0) === 1) {
 			conditions.push(eq(externalAccount.isFavertive, 1));
 		}
+		if (params.userId) {
+			conditions.push(eq(externalAccount.userId, Number(params.userId)));
+		}
 		if (params.createStartTime) {
 			conditions.push(sql`${externalAccount.createTime} >= ${params.createStartTime}`);
 		}
@@ -161,8 +165,9 @@ const externalAccountService = {
 			const page = Math.max(Number(params.page || 1), 1);
 			const size = Math.min(Math.max(Number(params.size || 50), 1), 100);
 			const totalRow = await orm(c).select({ total: count() }).from(externalAccount).where(and(...conditions)).get();
-			const list = await orm(c).select()
+			const list = await orm(c).select({ ...externalAccount, ownerEmail: user.email })
 				.from(externalAccount)
+				.leftJoin(user, eq(externalAccount.userId, user.userId))
 				.where(and(...conditions))
 				.orderBy(desc(externalAccount.externalAccountId))
 				.limit(size)
@@ -170,7 +175,12 @@ const externalAccountService = {
 				.all();
 			return { list: list.map(sanitize), total: totalRow.total };
 		}
-		const list = await orm(c).select().from(externalAccount).where(and(...conditions)).orderBy(desc(externalAccount.externalAccountId)).all();
+		const list = await orm(c).select({ ...externalAccount, ownerEmail: user.email })
+			.from(externalAccount)
+			.leftJoin(user, eq(externalAccount.userId, user.userId))
+			.where(and(...conditions))
+			.orderBy(desc(externalAccount.externalAccountId))
+			.all();
 		return list.map(sanitize);
 	},
 
