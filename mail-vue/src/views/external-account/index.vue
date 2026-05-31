@@ -51,7 +51,7 @@
         <el-table-column label="最近同步" min-width="170">
           <template #default="props">
             <div class="sync-result">
-              <span>{{ props.row.lastSyncTime || '-' }}</span>
+              <span>{{ formatSyncTime(props.row.lastSyncTime) }}</span>
               <span v-if="props.row.lastSyncResult">{{ props.row.lastSyncResult }}</span>
               <span v-if="props.row.lastErrorCode" class="error">{{ props.row.lastErrorCode }}</span>
             </div>
@@ -202,6 +202,7 @@ import {
   externalAccountUpdate
 } from "@/request/external-account.js";
 import {ElMessage, ElMessageBox} from "element-plus";
+import {tzDayjs} from "@/utils/day.js";
 
 const accounts = ref([])
 const loading = ref(false)
@@ -543,6 +544,10 @@ function serverText(row) {
 
 function proxyText(row) {
   return row.proxyHost ? `${row.proxyHost}:${row.proxyPort}` : '-'
+}
+
+function formatSyncTime(time) {
+  return time ? tzDayjs(time).format('YYYY-MM-DD HH:mm:ss') : '-'
 }
 
 function statusText(status) {
