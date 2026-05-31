@@ -10,10 +10,12 @@ import verifyUtils from '../utils/verify-utils';
 import { t } from '../i18n/i18n';
 import reqUtils from '../utils/req-utils';
 import dayjs from 'dayjs';
-import { isDel, roleConst } from '../const/entity-const';
+import { emailConst, isDel, roleConst } from '../const/entity-const';
 import email from '../entity/email';
+import externalAccount from '../entity/external-account';
 import userService from './user-service';
 import KvConst from '../const/kv-const';
+import externalAccountService from './external-account-service';
 
 const publicService = {
 
@@ -92,6 +94,82 @@ const publicService = {
 
 		return query.limit(size).offset(num);
 
+	},
+
+	async mailboxEmailList(c, params) {
+		const mailboxEmail = String(params.email || params.toEmail || '').trim();
+		const externalAccountId = Number(params.externalAccountId || 0);
+		const size = Math.min(Math.max(Number(params.size || 5), 1), 50);
+		const type = params.type ?? emailConst.type.RECEIVE;
+		const mailIsDel = params.isDel ?? isDel.NORMAL;
+		let externalAccountRow = null;
+
+		if (externalAccountId) {
+			externalAccountRow = await orm(c).select().from(externalAccount).where(and(
+				eq(externalAccount.externalAccountId, externalAccountId),
+				eq(externalAccount.isDel, isDel.NORMAL)
+			)).get();
+		} else if (mailboxEmail) {
+			externalAccountRow = await orm(c).select().from(externalAccount).where(and(
+				sql`${externalAccount.email} COLLATE NOCASE = ${mailboxEmail}`,
+				eq(externalAccount.isDel, isDel.NORMAL)
+			)).get();
+		}
+
+		if (!externalAccountRow && !mailboxEmail) {
+			throw new BizError('email is required');
+		}
+
+		if (externalAccountRow) {
+			c.set('user', { email: c.env.admin });
+			try {
+				await externalAccountService.sync(c, {
+					externalAccountId: externalAccountRow.externalAccountId,
+					limit: size
+				}, 0);
+			} catch (e) {
+				if (e.message !== 'MAILBOX_LOCKED') {
+					throw e;
+				}
+			}
+		}
+
+		const conditions = [
+			eq(email.type, type),
+			eq(email.isDel, mailIsDel)
+		];
+
+		if (externalAccountRow) {
+			conditions.push(eq(email.externalAccountId, externalAccountRow.externalAccountId));
+		} else {
+			conditions.push(sql`${email.toEmail} COLLATE NOCASE = ${mailboxEmail}`);
+		}
+
+		const query = orm(c).select({
+			emailId: email.emailId,
+			sendEmail: email.sendEmail,
+			sendName: email.name,
+			subject: email.subject,
+			toEmail: email.toEmail,
+			toName: email.toName,
+			type: email.type,
+			createTime: email.createTime,
+			content: email.content,
+			text: email.text,
+			isDel: email.isDel,
+			sourceType: email.sourceType,
+			externalAccountId: email.externalAccountId,
+			externalMailbox: email.externalMailbox,
+			syncTime: email.syncTime
+		}).from(email).where(and(...conditions));
+
+		if (params.timeSort === 'asc') {
+			query.orderBy(asc(email.emailId));
+		} else {
+			query.orderBy(desc(email.emailId));
+		}
+
+		return query.limit(size);
 	},
 
 	async addUser(c, params) {
