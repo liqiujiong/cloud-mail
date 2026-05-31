@@ -488,10 +488,24 @@ function saveForm() {
 function buildFormPayload() {
   const email = form.email.trim()
   return {
-    ...form,
+    externalAccountId: form.externalAccountId,
     email,
+    remark: form.remark,
     name: email,
-    username: email
+    protocol: form.protocol,
+    imapHost: form.imapHost,
+    imapPort: form.imapPort,
+    imapSecure: form.imapSecure,
+    imapMailbox: form.imapMailbox,
+    popHost: form.popHost,
+    popPort: form.popPort,
+    popSecure: form.popSecure,
+    username: email,
+    password: form.password,
+    proxyHost: form.proxyHost,
+    proxyPort: form.proxyPort,
+    proxyUsername: form.proxyUsername,
+    proxyPassword: form.proxyPassword
   }
 }
 
