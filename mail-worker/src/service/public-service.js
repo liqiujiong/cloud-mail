@@ -104,20 +104,21 @@ const publicService = {
 		const mailIsDel = params.isDel ?? isDel.NORMAL;
 		let externalAccountRow = null;
 
+		if (!mailboxEmail) {
+			throw new BizError('email is required');
+		}
+
 		if (externalAccountId) {
 			externalAccountRow = await orm(c).select().from(externalAccount).where(and(
 				eq(externalAccount.externalAccountId, externalAccountId),
+				sql`${externalAccount.email} COLLATE NOCASE = ${mailboxEmail}`,
 				eq(externalAccount.isDel, isDel.NORMAL)
 			)).get();
-		} else if (mailboxEmail) {
+		} else {
 			externalAccountRow = await orm(c).select().from(externalAccount).where(and(
 				sql`${externalAccount.email} COLLATE NOCASE = ${mailboxEmail}`,
 				eq(externalAccount.isDel, isDel.NORMAL)
 			)).get();
-		}
-
-		if (!externalAccountRow && !mailboxEmail) {
-			throw new BizError('email is required');
 		}
 
 		if (externalAccountRow) {
@@ -132,6 +133,37 @@ const publicService = {
 					throw e;
 				}
 			}
+		}
+
+		const domains = Array.isArray(c.env.domain) ? c.env.domain : [c.env.domain];
+		const isInternalMailbox = !externalAccountRow && domains.includes(emailUtils.getDomain(mailboxEmail));
+		const mailbox = externalAccountRow ? {
+			email: externalAccountRow.email,
+			exists: true,
+			type: 'external',
+			source: 'external_account',
+			externalAccountId: externalAccountRow.externalAccountId,
+			name: externalAccountRow.name,
+			remark: externalAccountRow.remark,
+			protocol: externalAccountRow.protocol,
+			status: externalAccountRow.status,
+			lastSyncTime: externalAccountRow.lastSyncTime,
+			lastSyncResult: externalAccountRow.lastSyncResult,
+			lastErrorCode: externalAccountRow.lastErrorCode,
+			lastError: externalAccountRow.lastError,
+			isFavertive: externalAccountRow.isFavertive
+		} : {
+			email: mailboxEmail,
+			exists: isInternalMailbox,
+			type: isInternalMailbox ? 'internal' : 'not_found',
+			source: isInternalMailbox ? 'cloudflare_routing' : 'none'
+		};
+
+		if (!mailbox.exists) {
+			return {
+				mailbox,
+				emails: []
+			};
 		}
 
 		const conditions = [
@@ -169,7 +201,10 @@ const publicService = {
 			query.orderBy(desc(email.emailId));
 		}
 
-		return query.limit(size);
+		return {
+			mailbox,
+			emails: await query.limit(size)
+		};
 	},
 
 	async addUser(c, params) {
