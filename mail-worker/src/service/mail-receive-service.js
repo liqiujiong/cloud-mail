@@ -7,6 +7,17 @@ import emailService from './email-service';
 import fileUtils from '../utils/file-utils';
 import emailUtils from '../utils/email-utils';
 
+function toDbDate(value) {
+	if (!value) {
+		return null;
+	}
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+	return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 const mailReceiveService = {
 	async saveParsedMail(c, parsedMail, sourceMeta, options = {}) {
 		const { r2Domain, aiCode, aiCodeFilter } = options;
@@ -37,7 +48,8 @@ const mailReceiveService = {
 			externalAccountId: sourceMeta.externalAccountId || 0,
 			externalUid: sourceMeta.externalUid || '',
 			externalMailbox: sourceMeta.externalMailbox || '',
-			syncTime: sourceMeta.syncTime || null
+			syncTime: sourceMeta.syncTime || null,
+			createTime: sourceMeta.createTime || toDbDate(parsedMail.date)
 		};
 
 		const attachments = [];

@@ -40,6 +40,13 @@ function sanitize(row) {
 	return data;
 }
 
+async function sanitizeWithSecrets(c, row) {
+	const data = sanitize(row);
+	data.password = await secretCryptoUtils.decrypt(c, row.passwordEncrypted);
+	data.proxyPassword = await secretCryptoUtils.decrypt(c, row.proxyPasswordEncrypted);
+	return data;
+}
+
 function sourceTypeByProtocol(protocol) {
 	return normalizeProtocol(protocol) === externalAccountConst.protocol.POP3
 		? emailConst.sourceType.EXTERNAL_POP3
@@ -183,7 +190,7 @@ const externalAccountService = {
 				.limit(size)
 				.offset((page - 1) * size)
 				.all();
-			return { list: list.map(sanitize), total: totalRow.total };
+			return { list: await Promise.all(list.map(row => sanitizeWithSecrets(c, row))), total: totalRow.total };
 		}
 		const list = await orm(c).select({
 			...externalAccount,
@@ -195,7 +202,7 @@ const externalAccountService = {
 			.where(and(...conditions))
 			.orderBy(desc(externalAccount.externalAccountId))
 			.all();
-		return list.map(sanitize);
+		return Promise.all(list.map(row => sanitizeWithSecrets(c, row)));
 	},
 
 	async detail(c, externalAccountId, userId, options = {}) {

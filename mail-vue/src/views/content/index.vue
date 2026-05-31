@@ -34,7 +34,13 @@
                 </span>
               </div>
               <div class="date">
-                <div>{{ formatDetailDate(email.createTime) }}</div>
+                <div>
+                  <template v-if="email.sourceType && email.sourceType !== 'cloudflare_routing'">邮件时间 </template>
+                  {{ formatDetailDate(email.createTime) }}
+                </div>
+                <div v-if="email.sourceType && email.sourceType !== 'cloudflare_routing' && email.syncTime">
+                  同步时间 {{ formatDetailDate(email.syncTime) }}
+                </div>
               </div>
             </div>
             <el-alert v-if="email.status === 3" :closable="false" :title="toMessage(email.message)" class="email-msg" type="error" show-icon />

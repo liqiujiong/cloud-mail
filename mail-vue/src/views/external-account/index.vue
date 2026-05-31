@@ -6,6 +6,14 @@
       <Icon v-perm="'external-account:query'" class="icon" :class="{disabled: selectedAccounts.length === 0}" icon="ion:download-outline" width="20" height="20" @click="exportSelected"/>
       <Icon v-perm="'external-account:sync'" class="icon" :class="{disabled: selectedAccounts.length === 0 || batchSyncing, syncing: batchSyncing}" icon="ion:sync-outline" width="19" height="19" @click="syncSelectedAccounts"/>
       <Icon class="icon" icon="ion:reload" width="18" height="18" @click="loadList"/>
+      <el-input
+          v-model="keyword"
+          class="keyword-input"
+          placeholder="搜索邮箱号"
+          clearable
+          @keyup.enter="loadList"
+          @clear="loadList"
+      />
       <Icon
           class="icon favorite-filter"
           :icon="favertiveOnly ? 'fluent-color:star-16' : 'solar:star-line-duotone'"
@@ -137,7 +145,7 @@
           </el-form-item>
         </template>
         <el-form-item label="邮箱密码">
-          <el-input v-model="form.password" type="password" show-password :placeholder="form.externalAccountId ? '留空表示不修改' : ''" autocomplete="new-password"/>
+          <el-input v-model="form.password" type="password" show-password autocomplete="new-password"/>
         </el-form-item>
         <el-divider>SOCKS5 代理</el-divider>
         <el-form-item label="代理 Host">
@@ -150,7 +158,7 @@
           <el-input v-model="form.proxyUsername" autocomplete="off"/>
         </el-form-item>
         <el-form-item label="代理密码">
-          <el-input v-model="form.proxyPassword" type="password" show-password :placeholder="form.externalAccountId ? '留空表示不修改' : ''" autocomplete="new-password"/>
+          <el-input v-model="form.proxyPassword" type="password" show-password autocomplete="new-password"/>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -248,6 +256,7 @@ const testingId = ref(0)
 const syncingId = ref(0)
 const batchSyncing = ref(false)
 const favertiveOnly = ref(false)
+const keyword = ref('')
 const createTimeRange = ref(null)
 const ownerEmail = ref('')
 const importResult = ref([])
@@ -317,6 +326,7 @@ function resetImportForm() {
 function loadList() {
   loading.value = true
   externalAccountList({
+    keyword: keyword.value.trim() || undefined,
     isFavertive: favertiveOnly.value ? 1 : undefined,
     ownerEmail: ownerEmail.value.trim() || undefined,
     createStartTime: createTimeRange.value ? toUtc(createTimeRange.value[0]).format('YYYY-MM-DD HH:mm:ss') : undefined,
@@ -350,8 +360,8 @@ function openEdit(row) {
     ...row,
     imapSecure: !!row.imapSecure,
     popSecure: !!row.popSecure,
-    password: '',
-    proxyPassword: ''
+    password: row.password || '',
+    proxyPassword: row.proxyPassword || ''
   })
   formShow.value = true
 }
@@ -714,6 +724,10 @@ function statusText(status) {
 
 .favorite-filter {
   flex: 0 0 auto;
+}
+
+.keyword-input {
+  width: 220px;
 }
 
 .create-time-range {
