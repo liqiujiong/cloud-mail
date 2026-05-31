@@ -168,7 +168,13 @@ const externalAccountService = {
 				sql`${externalAccount.remark} COLLATE NOCASE LIKE ${keyword}`
 			));
 		}
-		if (params.page || params.size || params.keyword) {
+		if (params.email) {
+			conditions.push(sql`${externalAccount.email} COLLATE NOCASE LIKE ${`%${String(params.email).trim()}%`}`);
+		}
+		if (params.remark) {
+			conditions.push(sql`${externalAccount.remark} COLLATE NOCASE LIKE ${`%${String(params.remark).trim()}%`}`);
+		}
+		if (params.page || params.size || params.keyword || params.email || params.remark) {
 			const page = Math.max(Number(params.page || 1), 1);
 			const size = Math.min(Math.max(Number(params.size || 50), 1), 100);
 			const totalRow = params.ownerEmail

@@ -7,9 +7,9 @@
       <Icon v-perm="'external-account:sync'" class="icon" :class="{disabled: selectedAccounts.length === 0 || batchSyncing, syncing: batchSyncing}" icon="ion:sync-outline" width="19" height="19" @click="syncSelectedAccounts"/>
       <Icon class="icon" icon="ion:reload" width="18" height="18" @click="loadList"/>
       <el-input
-          v-model="keyword"
+          v-model="emailKeyword"
           class="keyword-input"
-          placeholder="搜索邮箱号"
+          placeholder="模糊搜索邮箱"
           clearable
           @keyup.enter="loadList"
           @clear="loadList"
@@ -20,6 +20,14 @@
           width="20"
           height="20"
           @click="toggleFavertiveFilter"
+      />
+      <el-input
+          v-model="remarkKeyword"
+          class="remark-input"
+          placeholder="搜索备注"
+          clearable
+          @keyup.enter="loadList"
+          @clear="loadList"
       />
       <el-date-picker
           v-model="createTimeRange"
@@ -256,7 +264,8 @@ const testingId = ref(0)
 const syncingId = ref(0)
 const batchSyncing = ref(false)
 const favertiveOnly = ref(false)
-const keyword = ref('')
+const emailKeyword = ref('')
+const remarkKeyword = ref('')
 const createTimeRange = ref(null)
 const ownerEmail = ref('')
 const importResult = ref([])
@@ -373,13 +382,14 @@ function resetImportForm() {
 function loadList() {
   loading.value = true
   externalAccountList({
-    keyword: keyword.value.trim() || undefined,
+    email: emailKeyword.value.trim() || undefined,
+    remark: remarkKeyword.value.trim() || undefined,
     isFavertive: favertiveOnly.value ? 1 : undefined,
     ownerEmail: ownerEmail.value.trim() || undefined,
     createStartTime: createTimeRange.value ? toUtc(createTimeRange.value[0]).format('YYYY-MM-DD HH:mm:ss') : undefined,
     createEndTime: createTimeRange.value ? toUtc(createTimeRange.value[1]).add(1, 'day').format('YYYY-MM-DD HH:mm:ss') : undefined
   }).then(data => {
-    accounts.value = data || []
+    accounts.value = Array.isArray(data) ? data : (data?.list || [])
     selectedAccounts.value = []
   }).finally(() => {
     loading.value = false
@@ -843,6 +853,10 @@ function statusText(status) {
 
 .keyword-input {
   width: 220px;
+}
+
+.remark-input {
+  width: 180px;
 }
 
 .create-time-range {
