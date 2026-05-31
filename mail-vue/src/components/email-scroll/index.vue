@@ -365,7 +365,7 @@ onActivated(() => {
 onMounted(() => {
   timer = setInterval(() => {
     emailList.forEach(email => {
-      email.formatCreateTime = fromNow(email.createTime);
+      email.formatCreateTime = formatEmailTime(email);
     })
   }, 1000 * 60);
 })
@@ -732,7 +732,7 @@ function addItem(email) {
   }
 
   email.formatText = htmlToText(email);
-  email.formatCreateTime = fromNow(email.formatCreateTime);
+  email.formatCreateTime = formatEmailTime(email);
 
   if (props.timeSort) {
     if (noLoading.value) {
@@ -873,7 +873,7 @@ function getEmailList(refresh = false) {
 function handleList(list) {
   list.forEach(email => {
     email.formatText = htmlToText(email)
-    email.formatCreateTime = fromNow(email.createTime);
+    email.formatCreateTime = formatEmailTime(email);
     email.test = t('received')
     const statusIconMap = {
       0: { icon: 'ic:round-mark-email-read', color: '#51C76B', content: t('received') },
@@ -891,6 +891,17 @@ function handleList(list) {
     }
     email.statusIcon = statusIconMap[email.status];
   })
+}
+
+function formatEmailTime(email) {
+  const receiveTime = fromNow(email.createTime)
+  if (!email.syncTime) {
+    return receiveTime
+  }
+  const syncTime = fromNow(email.syncTime)
+  return settingStore.lang === 'en'
+      ? `${receiveTime} / synced ${syncTime}`
+      : `${receiveTime} / ${syncTime}同步`
 }
 
 function refresh() {

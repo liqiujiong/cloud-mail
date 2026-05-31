@@ -18,28 +18,31 @@
         </div>
         <div class="content">
           <div class="email-info">
-            <div>
-              <div class="send"><span class="send-source">{{$t('from')}}</span>
-                <div class="send-name">
-                  <span class="send-name-title">{{ email.name }}</span>
-                  <span><{{ email.sendEmail }}></span>
+            <div class="email-info-row">
+              <div class="email-info-main">
+                <div class="send"><span class="send-source">{{$t('from')}}</span>
+                  <div class="send-name">
+                    <span class="send-name-title">{{ email.name }}</span>
+                    <span><{{ email.sendEmail }}></span>
+                  </div>
                 </div>
-              </div>
-              <div class="receive"><span class="source">{{$t('recipient')}}</span><span class="receive-email">{{  formateReceive(email.recipient) }}</span></div>
-              <div class="receive" v-if="email.sourceType && email.sourceType !== 'cloudflare_routing'">
-                <span class="source">来源</span>
-                <span class="receive-email">
-                  {{ sourceText(email.sourceType) }}
-                  <template v-if="email.externalUid"> / {{ email.externalMailbox || '-' }} / {{ email.externalUid }}</template>
-                </span>
+                <div class="receive"><span class="source">{{$t('recipient')}}</span><span class="receive-email">{{  formateReceive(email.recipient) }}</span></div>
+                <div class="receive" v-if="email.sourceType && email.sourceType !== 'cloudflare_routing'">
+                  <span class="source">来源</span>
+                  <span class="receive-email">
+                    {{ sourceText(email.sourceType) }}
+                    <template v-if="email.externalUid"> / {{ email.externalMailbox || '-' }} / {{ email.externalUid }}</template>
+                  </span>
+                </div>
               </div>
               <div class="date">
                 <div>
-                  <template v-if="email.sourceType && email.sourceType !== 'cloudflare_routing'">邮件时间 </template>
-                  {{ formatDetailDate(email.createTime) }}
+                  <span v-if="email.sourceType && email.sourceType !== 'cloudflare_routing'">邮件时间</span>
+                  <span>{{ formatDetailDate(email.createTime) }}</span>
                 </div>
                 <div v-if="email.sourceType && email.sourceType !== 'cloudflare_routing' && email.syncTime">
-                  同步时间 {{ formatDetailDate(email.syncTime) }}
+                  <span>同步时间</span>
+                  <span>{{ formatDetailDate(email.syncTime) }}</span>
                 </div>
               </div>
             </div>
@@ -371,9 +374,44 @@ const handleDelete = () => {
       @media (max-width: 1024px) {
         margin-bottom: 15px;
       }
+      .email-info-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 20px;
+        @media (max-width: 767px) {
+          flex-direction: column;
+          gap: 6px;
+        }
+      }
+
+      .email-info-main {
+        min-width: 0;
+      }
+
       .date {
         color: var(--regular-text-color);
         margin-bottom: 6px;
+        text-align: right;
+        white-space: nowrap;
+        display: grid;
+        gap: 6px;
+        div {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+        div span:first-child {
+          color: var(--secondary-text-color);
+          font-weight: bold;
+        }
+        @media (max-width: 767px) {
+          text-align: left;
+          white-space: normal;
+          div {
+            justify-content: flex-start;
+          }
+        }
       }
 
       .email-msg {
