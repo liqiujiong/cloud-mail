@@ -74,7 +74,7 @@
         </el-table-column>
         <el-table-column label="名称" prop="name" min-width="140"/>
         <el-table-column label="邮箱" prop="email" min-width="210"/>
-        <el-table-column label="备注" prop="remark" min-width="150"/>
+        <el-table-column label="备注" prop="remark" min-width="150" show-overflow-tooltip/>
         <el-table-column label="协议" width="90">
           <template #default="props">
             <el-tag :type="props.row.protocol === 'IMAP' ? 'success' : 'warning'">{{ props.row.protocol }}</el-tag>
