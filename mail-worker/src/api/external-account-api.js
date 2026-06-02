@@ -38,6 +38,11 @@ async function favertive(c) {
 	return c.json(result.ok(data));
 }
 
+async function favertiveBatch(c) {
+	const data = await externalAccountService.setFavertiveBatch(c, await c.req.json(), userContext.getUserId(c));
+	return c.json(result.ok(data));
+}
+
 async function exportAccounts(c) {
 	const data = await externalAccountService.export(c, await c.req.json(), userContext.getUserId(c));
 	return c.json(result.ok(data));
@@ -50,6 +55,7 @@ app.delete('/externalAccount/delete', remove);
 app.post('/externalAccount/test', test);
 app.post('/externalAccount/sync', sync);
 app.post('/externalAccount/favertive', favertive);
+app.post('/externalAccount/favertiveBatch', favertiveBatch);
 app.post('/externalAccount/export', exportAccounts);
 
 app.get('/external-account/list', list);
@@ -59,4 +65,5 @@ app.delete('/external-account/delete', remove);
 app.post('/external-account/test', test);
 app.post('/external-account/sync', sync);
 app.post('/external-account/favertive', favertive);
+app.post('/external-account/favertive-batch', favertiveBatch);
 app.post('/external-account/export', exportAccounts);

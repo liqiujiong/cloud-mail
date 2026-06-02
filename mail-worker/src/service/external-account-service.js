@@ -28,6 +28,14 @@ function normalizeProtocol(protocol) {
 	return String(protocol || '').toUpperCase();
 }
 
+function parseEmailList(value) {
+	const list = Array.isArray(value) ? value : String(value || '').split(/\s+/);
+	return [...new Set(list
+		.map(item => String(item || '').trim().toLowerCase())
+		.filter(Boolean)
+	)];
+}
+
 function sanitize(row) {
 	if (!row) {
 		return row;
@@ -172,7 +180,12 @@ const externalAccountService = {
 			));
 		}
 		if (params.email) {
-			conditions.push(sql`${externalAccount.email} COLLATE NOCASE LIKE ${`%${String(params.email).trim()}%`}`);
+			const emails = parseEmailList(params.email);
+			if (emails.length === 1) {
+				conditions.push(sql`LOWER(${externalAccount.email}) = ${emails[0]}`);
+			} else if (emails.length > 1) {
+				conditions.push(inArray(sql`LOWER(${externalAccount.email})`, emails));
+			}
 		}
 		if (params.remark) {
 			conditions.push(sql`${externalAccount.remark} COLLATE NOCASE LIKE ${`%${String(params.remark).trim()}%`}`);
@@ -330,6 +343,44 @@ const externalAccountService = {
 			...row,
 			isFavertive
 		});
+	},
+
+	async setFavertiveBatch(c, params, userId) {
+		const emails = parseEmailList(params.emails);
+		if (emails.length === 0) {
+			throw new BizError('请填写邮箱');
+		}
+		const userRow = c.get('user');
+		const conditions = [
+			eq(externalAccount.isDel, isDel.NORMAL),
+			inArray(sql`LOWER(${externalAccount.email})`, emails)
+		];
+		if (userRow.email !== c.env.admin) {
+			const adminUserId = await getAdminUserId(c);
+			conditions.push(adminUserId
+				? or(eq(externalAccount.userId, userId), eq(externalAccount.userId, adminUserId))
+				: eq(externalAccount.userId, userId)
+			);
+		}
+		const rows = await orm(c).select({
+			externalAccountId: externalAccount.externalAccountId,
+			email: externalAccount.email
+		}).from(externalAccount).where(and(...conditions)).all();
+		const ids = rows.map(item => item.externalAccountId);
+		const matched = new Set(rows.map(item => String(item.email || '').toLowerCase()));
+		const isFavertive = Number(params.isFavertive ?? params.is_favertive ?? 1) ? 1 : 0;
+		if (ids.length > 0) {
+			await orm(c).update(externalAccount).set({
+				isFavertive,
+				updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+			}).where(inArray(externalAccount.externalAccountId, ids)).run();
+		}
+		return {
+			total: emails.length,
+			matched: ids.length,
+			updated: ids.length,
+			missing: emails.filter(email => !matched.has(email))
+		};
 	},
 
 	async export(c, params, userId) {

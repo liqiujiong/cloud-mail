@@ -107,7 +107,7 @@ const premKey = {
 	'reg-key:delete': ['/regKey/delete','/regKey/clearNotUse'],
 	'external-account:query': ['/externalAccount/list','/external-account/list','/externalAccount/export','/external-account/export'],
 	'external-account:add': ['/externalAccount/add','/external-account/add'],
-	'external-account:set': ['/externalAccount/update','/external-account/update','/externalAccount/favertive','/external-account/favertive'],
+	'external-account:set': ['/externalAccount/update','/external-account/update','/externalAccount/favertive','/external-account/favertive','/externalAccount/favertiveBatch','/external-account/favertive-batch'],
 	'external-account:delete': ['/externalAccount/delete','/external-account/delete'],
 	'external-account:test': ['/externalAccount/test','/external-account/test'],
 	'external-account:sync': ['/externalAccount/sync','/external-account/sync'],

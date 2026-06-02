@@ -6,20 +6,21 @@
       <Icon v-perm="'external-account:query'" class="icon" :class="{disabled: selectedAccounts.length === 0}" icon="ion:download-outline" width="20" height="20" @click="exportSelected"/>
       <Icon v-perm="'external-account:sync'" class="icon" :class="{disabled: selectedAccounts.length === 0 || batchSyncing, syncing: batchSyncing}" icon="ion:sync-outline" width="19" height="19" @click="syncSelectedAccounts"/>
       <Icon class="icon" icon="ion:reload" width="18" height="18" @click="loadList"/>
-      <el-input
-          v-model="emailKeyword"
-          class="keyword-input"
-          placeholder="模糊搜索邮箱"
-          clearable
-          @keyup.enter="searchList"
-          @clear="searchList"
-      />
       <Icon
           class="icon favorite-filter"
           :icon="favertiveOnly ? 'fluent-color:star-16' : 'solar:star-line-duotone'"
           width="20"
           height="20"
           @click="toggleFavertiveFilter"
+      />
+      <el-button v-perm="'external-account:set'" size="small" @click="openBatchMark">批量标记</el-button>
+      <el-input
+          v-model="emailKeyword"
+          class="keyword-input"
+          placeholder="精准搜索邮箱，空格分隔"
+          clearable
+          @keyup.enter="searchList"
+          @clear="searchList"
       />
       <el-input
           v-model="remarkKeyword"
@@ -256,6 +257,37 @@
         <el-button type="primary" :loading="importSaving" @click="saveImport">开始导入</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="batchMarkShow" title="批量标记外部邮箱" width="560px" @closed="resetBatchMarkForm">
+      <el-alert
+          class="import-tip"
+          type="info"
+          show-icon
+          :closable="false"
+          title="每行一个邮箱，执行后会批量设为收藏。也支持从表格或文件中复制多行邮箱。"
+      />
+      <el-form label-width="90px" class="account-form">
+        <el-form-item label="邮箱列表">
+          <el-input
+              v-model="batchMarkForm.content"
+              type="textarea"
+              :rows="10"
+              placeholder="user1@yahoo.com&#10;user2@yahoo.com"
+          />
+        </el-form-item>
+        <el-form-item v-if="batchMarkResult" label="执行结果">
+          <div class="import-result">
+            <div class="success">已标记 {{ batchMarkResult.updated }} 个，输入 {{ batchMarkResult.total }} 个</div>
+            <div v-if="batchMarkResult.missing.length" class="error">
+              未找到：{{ batchMarkResult.missing.join('、') }}
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchMarkShow = false" :disabled="batchMarkSaving">取消</el-button>
+        <el-button type="primary" :loading="batchMarkSaving" @click="saveBatchMark">执行标记</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -267,6 +299,7 @@ import {
   externalAccountDelete,
   externalAccountExport,
   externalAccountFavertive,
+  externalAccountFavertiveBatch,
   externalAccountList,
   externalAccountSync,
   externalAccountTest,
@@ -279,8 +312,10 @@ const accounts = ref([])
 const loading = ref(false)
 const formShow = ref(false)
 const importShow = ref(false)
+const batchMarkShow = ref(false)
 const saving = ref(false)
 const importSaving = ref(false)
+const batchMarkSaving = ref(false)
 const testSaving = ref(false)
 const testingId = ref(0)
 const syncingId = ref(0)
@@ -292,6 +327,7 @@ const statusFilter = ref('')
 const createTimeRange = ref(null)
 const ownerEmail = ref('')
 const importResult = ref([])
+const batchMarkResult = ref(null)
 const selectedAccounts = ref([])
 const importProgress = reactive({
   done: 0,
@@ -315,6 +351,9 @@ const statusOptions = [
 
 const form = reactive(defaultForm())
 const importForm = reactive(defaultImportForm())
+const batchMarkForm = reactive({
+  content: ''
+})
 const autoFilledServer = reactive({
   protocol: '',
   host: ''
@@ -417,6 +456,11 @@ function resetImportForm() {
   importProgress.total = 0
 }
 
+function resetBatchMarkForm() {
+  batchMarkForm.content = ''
+  batchMarkResult.value = null
+}
+
 function loadList() {
   loading.value = true
   externalAccountList({
@@ -461,6 +505,11 @@ function openAdd() {
 function openImport() {
   resetImportForm()
   importShow.value = true
+}
+
+function openBatchMark() {
+  resetBatchMarkForm()
+  batchMarkShow.value = true
 }
 
 function openEdit(row) {
@@ -619,6 +668,14 @@ function parseProxy(value) {
   }
 }
 
+function parseEmailTokens(value) {
+  return [...new Set(String(value || '')
+      .split(/\s+/)
+      .map(item => item.trim())
+      .filter(Boolean)
+  )]
+}
+
 function buildImportPayload(row) {
   const domain = getEmailDomain(row.email)
   const config = getIncomingConfig(domain, importForm.protocol)
@@ -718,6 +775,27 @@ async function saveImport() {
   const successCount = importResult.value.filter(item => item.success).length
   ElMessage({message: `导入完成，成功 ${successCount} 个，失败 ${rows.length - successCount} 个`, type: successCount ? 'success' : 'error', plain: true})
   loadList()
+}
+
+async function saveBatchMark() {
+  const emails = parseEmailTokens(batchMarkForm.content)
+  if (emails.length === 0) {
+    ElMessage({message: '请填写邮箱列表', type: 'warning', plain: true})
+    return
+  }
+  batchMarkSaving.value = true
+  batchMarkResult.value = null
+  externalAccountFavertiveBatch(emails, 1).then(data => {
+    batchMarkResult.value = {
+      total: data?.total || emails.length,
+      updated: data?.updated || 0,
+      missing: data?.missing || []
+    }
+    ElMessage({message: `批量标记完成，成功 ${batchMarkResult.value.updated} 个`, type: 'success', plain: true})
+    loadList()
+  }).finally(() => {
+    batchMarkSaving.value = false
+  })
 }
 
 function testForm() {

@@ -28,6 +28,10 @@ export function externalAccountFavertive(externalAccountId, isFavertive) {
     return http.post('/externalAccount/favertive', {externalAccountId, isFavertive})
 }
 
+export function externalAccountFavertiveBatch(emails, isFavertive = 1) {
+    return http.post('/externalAccount/favertiveBatch', {emails, isFavertive})
+}
+
 export function externalAccountExport(externalAccountIds) {
     return http.post('/externalAccount/export', {externalAccountIds})
 }
