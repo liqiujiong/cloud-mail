@@ -584,16 +584,28 @@ function fillServerHostByEmail() {
   autoFilledServer.host = config?.host || ''
 }
 
-function saveForm() {
+async function saveForm() {
   saving.value = true
   const request = form.externalAccountId ? externalAccountUpdate : externalAccountAdd
-  request(buildFormPayload()).then(() => {
-    ElMessage({message: '保存成功', type: 'success', plain: true})
+  try {
+    const isAdd = !form.externalAccountId
+    const data = await request(buildFormPayload())
+    if (isAdd && data?.externalAccountId) {
+      ElMessage({message: '保存成功，正在同步邮件', type: 'success', plain: true})
+      try {
+        const syncData = await syncAfterSave(data.externalAccountId)
+        ElMessage({message: `同步完成，新增 ${syncData?.fetched || 0} 封，跳过 ${syncData?.skipped || 0} 封`, type: 'success', plain: true})
+      } catch (e) {
+        ElMessage({message: `账号已保存，同步失败：${e.message || '失败'}`, type: 'warning', plain: true})
+      }
+    } else {
+      ElMessage({message: '保存成功', type: 'success', plain: true})
+    }
     formShow.value = false
     loadList()
-  }).finally(() => {
+  } finally {
     saving.value = false
-  })
+  }
 }
 
 function buildFormPayload() {
@@ -746,23 +758,28 @@ async function saveImport() {
   importResult.value = []
   importProgress.done = 0
   importProgress.total = rows.length
+  const syncTargets = []
 
   for (const row of rows) {
     try {
       const existing = await findExistingImportAccount(row.email)
+      let data
       if (existing) {
-        await externalAccountUpdate({
+        data = await externalAccountUpdate({
           ...buildImportPayload(row),
           externalAccountId: existing.externalAccountId,
           isFavertive: existing.isFavertive,
           status: existing.status
         })
-        importResult.value.push({email: row.email, success: true, message: '已更新'})
+        importResult.value.push({email: row.email, success: true, message: '已更新，待同步'})
       } else if (!row.password) {
         importResult.value.push({email: row.email, success: false, message: '新账号必须填写密码'})
       } else {
-        await externalAccountAdd(buildImportPayload(row))
-        importResult.value.push({email: row.email, success: true, message: '已新增'})
+        data = await externalAccountAdd(buildImportPayload(row))
+        importResult.value.push({email: row.email, success: true, message: '已新增，待同步'})
+      }
+      if (data?.externalAccountId) {
+        syncTargets.push({externalAccountId: data.externalAccountId, email: row.email})
       }
     } catch (e) {
       importResult.value.push({email: row.email, success: false, message: e.message || '失败'})
@@ -771,10 +788,33 @@ async function saveImport() {
     }
   }
 
+  let syncSuccess = 0
+  let syncFailed = 0
+  for (const target of syncTargets) {
+    const resultItem = importResult.value.find(item => item.email === target.email && item.success)
+    try {
+      const data = await syncAfterSave(target.externalAccountId)
+      syncSuccess++
+      if (resultItem) {
+        resultItem.message = `${resultItem.message.replace('，待同步', '')}，同步新增 ${data?.fetched || 0} 封`
+      }
+    } catch (e) {
+      syncFailed++
+      if (resultItem) {
+        resultItem.message = `${resultItem.message.replace('，待同步', '')}，同步失败：${e.message || '失败'}`
+      }
+    }
+  }
+
   importSaving.value = false
   const successCount = importResult.value.filter(item => item.success).length
-  ElMessage({message: `导入完成，成功 ${successCount} 个，失败 ${rows.length - successCount} 个`, type: successCount ? 'success' : 'error', plain: true})
+  const syncText = syncTargets.length ? `；同步成功 ${syncSuccess} 个，失败 ${syncFailed} 个` : ''
+  ElMessage({message: `导入完成，成功 ${successCount} 个，失败 ${rows.length - successCount} 个${syncText}`, type: successCount && !syncFailed ? 'success' : 'warning', plain: true})
   loadList()
+}
+
+function syncAfterSave(externalAccountId) {
+  return externalAccountSync(externalAccountId, 5)
 }
 
 async function saveBatchMark() {
