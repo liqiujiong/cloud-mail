@@ -199,62 +199,121 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="importShow" title="批量导入外部邮箱" width="680px" @closed="resetImportForm">
-      <el-alert
-          class="import-tip"
-          type="info"
-          show-icon
-          :closable="false"
-          title="每行一个账号，格式：邮箱----密码----SOCKS5代理。已存在账号会更新；代理格式：用户名:密码@host:端口；代理可留空。"
-      />
-      <el-form label-width="110px" class="account-form import-form">
-        <el-form-item label="协议">
-          <el-segmented v-model="importForm.protocol" :options="['IMAP', 'POP3']"/>
-        </el-form-item>
-        <template v-if="importForm.protocol === 'IMAP'">
-          <el-form-item label="IMAP Host">
-            <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="留空则按邮箱域名匹配预设配置"/>
-          </el-form-item>
-          <el-form-item label="IMAP Port">
-            <el-input-number v-model="importForm.imapPort" :min="1" :max="65535"/>
-            <el-checkbox v-model="importForm.imapSecure" class="secure-check">SSL</el-checkbox>
-          </el-form-item>
-          <el-form-item label="文件夹">
+    <el-dialog v-model="importShow" width="960px" class="import-dialog" :show-close="false" @closed="resetImportForm">
+      <template #header>
+        <div class="import-header">
+          <div class="import-title">导入外部邮箱</div>
+          <el-segmented v-model="importStep" :options="importStepOptions"/>
+          <el-button class="import-close" text @click="importShow = false">
+            <Icon icon="ion:close-outline" width="24" height="24"/>
+          </el-button>
+        </div>
+      </template>
+      <div class="import-panel">
+        <div class="import-config-grid">
+          <label class="import-field">
+            <span>批量备注</span>
+            <el-input v-model="importForm.remark" autocomplete="off" placeholder="例如：0603 Discord 登录补录"/>
+          </label>
+          <label class="import-field">
+            <span>协议</span>
+            <el-segmented v-model="importForm.protocol" :options="['IMAP', 'POP3']"/>
+          </label>
+          <label class="import-field" v-if="importForm.protocol === 'IMAP'">
+            <span>IMAP Host</span>
+            <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="留空按邮箱域名匹配"/>
+          </label>
+          <label class="import-field" v-else>
+            <span>POP3 Host</span>
+            <el-input v-model="importForm.popHost" autocomplete="off" placeholder="留空按邮箱域名匹配"/>
+          </label>
+          <label class="import-field compact-field" v-if="importForm.protocol === 'IMAP'">
+            <span>IMAP Port</span>
+            <div class="import-port-row">
+              <el-input-number v-model="importForm.imapPort" :min="1" :max="65535"/>
+              <el-checkbox v-model="importForm.imapSecure">SSL</el-checkbox>
+            </div>
+          </label>
+          <label class="import-field compact-field" v-else>
+            <span>POP3 Port</span>
+            <div class="import-port-row">
+              <el-input-number v-model="importForm.popPort" :min="1" :max="65535"/>
+              <el-checkbox v-model="importForm.popSecure">SSL</el-checkbox>
+            </div>
+          </label>
+          <label class="import-field compact-field" v-if="importForm.protocol === 'IMAP'">
+            <span>文件夹</span>
             <el-input v-model="importForm.imapMailbox" autocomplete="off"/>
-          </el-form-item>
-        </template>
-        <template v-else>
-          <el-form-item label="POP3 Host">
-            <el-input v-model="importForm.popHost" autocomplete="off" placeholder="留空则按邮箱域名匹配预设配置"/>
-          </el-form-item>
-          <el-form-item label="POP3 Port">
-            <el-input-number v-model="importForm.popPort" :min="1" :max="65535"/>
-            <el-checkbox v-model="importForm.popSecure" class="secure-check">SSL</el-checkbox>
-          </el-form-item>
-        </template>
-        <el-form-item label="账号列表">
+          </label>
+        </div>
+        <div class="import-stat-grid">
+          <div class="import-stat">总行 <b>{{ importStats.total }}</b></div>
+          <div class="import-stat success">有效 <b>{{ importStats.valid }}</b></div>
+          <div class="import-stat warning">异常 <b>{{ importStats.invalid }}</b></div>
+        </div>
+        <template v-if="importStep === 1">
+          <label class="import-text-label">粘贴文本</label>
           <el-input
               v-model="importForm.content"
+              class="import-textarea"
               type="textarea"
-              :rows="8"
-              placeholder="rrrfctege@aol.com----应用专用密码----4366847-4acf873f:eed4cadc-global-74672633-5m@gate.kookeey.info:1000&#10;user2@aol.com----应用专用密码"
+              :rows="13"
+              placeholder="user@example.com----应用专用密码----user:pass@gate.example.com:1000&#10;user2@example.com----应用专用密码"
           />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="importForm.remark" autocomplete="off"/>
-        </el-form-item>
-        <el-form-item v-if="importResult.length" label="导入结果">
-          <div class="import-result">
+          <div class="import-help">支持 “----”、多个横线、Tab、逗号或空白分隔。下一步可把每一列映射到账号字段，不再要求原始文本完全按固定格式。</div>
+        </template>
+        <template v-else-if="importStep === 2">
+          <el-table class="mapping-table" :data="importMappingRows" border>
+            <el-table-column label="列" width="110">
+              <template #default="props">第 {{ props.row.column }} 列</template>
+            </el-table-column>
+            <el-table-column label="映射字段" width="230">
+              <template #default="props">
+                <el-select v-model="importMappings[props.row.index]" placeholder="选择字段">
+                  <el-option v-for="item in importFieldOptions" :key="item.value" :label="item.label" :value="item.value"/>
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="样例值" prop="sample" show-overflow-tooltip/>
+          </el-table>
+          <div class="mapping-status" :class="{error: !importMappingReady}">
+            {{ importMappingReady ? '映射可用' : '必须映射邮箱和密码字段' }}
+          </div>
+        </template>
+        <template v-else>
+          <div class="import-stat-grid preview-stats">
+            <div class="import-stat">批次 <b>自动生成</b></div>
+            <div class="import-stat success">待导入 <b>{{ importStats.valid }}</b></div>
+            <div class="import-stat warning">预检异常 <b>{{ importStats.invalid }}</b></div>
+            <div class="import-stat">后端错误 / 跳过 <b>{{ importBackendFailed }} / {{ importBackendSkipped }}</b></div>
+          </div>
+          <el-table class="preview-table" :data="importPreviewRows" border>
+            <el-table-column label="行" prop="index" width="70"/>
+            <el-table-column label="邮箱" prop="email" min-width="210" show-overflow-tooltip/>
+            <el-table-column label="密码" width="100">
+              <template #default="props">{{ props.row.password ? '已填' : '-' }}</template>
+            </el-table-column>
+            <el-table-column label="代理" prop="proxyRaw" min-width="210" show-overflow-tooltip/>
+            <el-table-column label="备注" prop="remark" min-width="170" show-overflow-tooltip/>
+            <el-table-column label="状态" min-width="180">
+              <template #default="props">
+                <span :class="props.row.valid ? 'success' : 'error'">{{ props.row.message }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="importResult.length" class="import-result">
             <div v-for="item in importResult" :key="item.email" :class="item.success ? 'success' : 'error'">
               {{ item.email }}：{{ item.message }}
             </div>
           </div>
-        </el-form-item>
-      </el-form>
+        </template>
+      </div>
       <template #footer>
         <span class="import-progress" v-if="importSaving">正在导入 {{ importProgress.done }}/{{ importProgress.total }}</span>
         <el-button @click="importShow = false" :disabled="importSaving">取消</el-button>
-        <el-button type="primary" :loading="importSaving" @click="saveImport">开始导入</el-button>
+        <el-button v-if="importStep > 1" :disabled="importSaving" @click="prevImportStep">上一步</el-button>
+        <el-button v-if="importStep < 3" type="primary" :disabled="!canGoNextImportStep" @click="nextImportStep">下一步</el-button>
+        <el-button v-else type="primary" :loading="importSaving" :disabled="importPreviewRows.length === 0 || importStats.invalid > 0" @click="saveImport">确认导入</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="batchMarkShow" title="批量标记外部邮箱" width="560px" @closed="resetBatchMarkForm">
@@ -293,7 +352,7 @@
 
 <script setup>
 import {Icon} from "@iconify/vue";
-import {reactive, ref, watch} from "vue";
+import {computed, reactive, ref, watch} from "vue";
 import {
   externalAccountAdd,
   externalAccountDelete,
@@ -313,6 +372,7 @@ const loading = ref(false)
 const formShow = ref(false)
 const importShow = ref(false)
 const batchMarkShow = ref(false)
+const importStep = ref(1)
 const saving = ref(false)
 const importSaving = ref(false)
 const batchMarkSaving = ref(false)
@@ -329,6 +389,7 @@ const ownerEmail = ref('')
 const importResult = ref([])
 const batchMarkResult = ref(null)
 const selectedAccounts = ref([])
+const importMappings = ref([])
 const importProgress = reactive({
   done: 0,
   total: 0
@@ -349,6 +410,20 @@ const statusOptions = [
   {label: '风控异常', value: 'security_check_required'}
 ]
 
+const importStepOptions = [
+  {label: '1. 粘贴文本', value: 1},
+  {label: '2. 字段映射', value: 2},
+  {label: '3. 预览确认', value: 3}
+]
+
+const importFieldOptions = [
+  {label: '忽略', value: ''},
+  {label: '邮箱 *', value: 'email'},
+  {label: '密码 *', value: 'password'},
+  {label: 'SOCKS5 代理', value: 'proxy'},
+  {label: '备注', value: 'remark'}
+]
+
 const form = reactive(defaultForm())
 const importForm = reactive(defaultImportForm())
 const batchMarkForm = reactive({
@@ -358,6 +433,41 @@ const autoFilledServer = reactive({
   protocol: '',
   host: ''
 })
+
+const importRawRows = computed(() => parseImportRawRows())
+const importMappingRows = computed(() => {
+  const maxColumn = importRawRows.value.reduce((max, row) => Math.max(max, row.columns.length), 0)
+  return Array.from({length: maxColumn}, (_, index) => {
+    const sampleRow = importRawRows.value.find(row => row.columns[index])
+    return {
+      index,
+      column: index + 1,
+      sample: sampleRow?.columns[index] || '-'
+    }
+  })
+})
+const importPreviewRows = computed(() => importRawRows.value.map(toImportPreviewRow))
+const importStats = computed(() => {
+  const total = importRawRows.value.length
+  const valid = importPreviewRows.value.filter(row => row.valid).length
+  return {
+    total,
+    valid,
+    invalid: total - valid
+  }
+})
+const importMappingReady = computed(() => importMappings.value.includes('email') && importMappings.value.includes('password'))
+const canGoNextImportStep = computed(() => {
+  if (importStep.value === 1) {
+    return importStats.value.total > 0
+  }
+  if (importStep.value === 2) {
+    return importMappingReady.value
+  }
+  return false
+})
+const importBackendFailed = computed(() => importResult.value.filter(item => !item.success).length)
+const importBackendSkipped = computed(() => importPreviewRows.value.filter(item => !item.valid).length)
 
 const incomingServerPresets = {
   'hotmail.com': {
@@ -405,6 +515,7 @@ loadList()
 
 watch(() => form.email, fillServerHostByEmail)
 watch(() => form.protocol, fillServerHostByEmail)
+watch(() => importForm.content, syncDefaultImportMappings)
 
 function defaultForm() {
   return {
@@ -451,6 +562,8 @@ function resetForm() {
 
 function resetImportForm() {
   Object.assign(importForm, defaultImportForm())
+  importStep.value = 1
+  importMappings.value = []
   importResult.value = []
   importProgress.done = 0
   importProgress.total = 0
@@ -632,27 +745,72 @@ function buildFormPayload() {
   }
 }
 
-function parseImportRows() {
+function splitImportColumns(line) {
+  if (line.includes('\t')) {
+    return line.split('\t')
+  }
+  if (/-{2,}|—{2,}/.test(line)) {
+    return line.split(/-{2,}|—{2,}/)
+  }
+  if (line.includes(',') || line.includes('，')) {
+    return line.split(/,|，/)
+  }
+  return line.split(/\s+/)
+}
+
+function parseImportRawRows() {
   return importForm.content
       .split(/\r?\n/)
       .map(line => line.trim())
       .filter(Boolean)
       .map((line, index) => {
-        let parts = line.includes('----')
-            ? line.split('----')
-            : line.split(/,|\t/)
-        parts = parts.map(item => item.trim())
-        const email = parts[0] || ''
-        const password = parts[1] || ''
-        const proxy = parseProxy(parts[2] || '')
         return {
           index: index + 1,
-          email,
-          password,
-          proxyRaw: parts[2] || '',
-          proxy
+          raw: line,
+          columns: splitImportColumns(line).map(item => item.trim())
         }
       })
+}
+
+function syncDefaultImportMappings() {
+  const maxColumn = importRawRows.value.reduce((max, row) => Math.max(max, row.columns.length), 0)
+  const defaults = ['email', 'password', 'proxy', 'remark']
+  importMappings.value = Array.from({length: maxColumn}, (_, index) => importMappings.value[index] ?? defaults[index] ?? '')
+}
+
+function importMappedValue(rawRow, field) {
+  const columnIndex = importMappings.value.findIndex(item => item === field)
+  return columnIndex > -1 ? (rawRow.columns[columnIndex] || '').trim() : ''
+}
+
+function toImportPreviewRow(rawRow) {
+  const email = importMappedValue(rawRow, 'email')
+  const password = importMappedValue(rawRow, 'password')
+  const proxyRaw = importMappedValue(rawRow, 'proxy')
+  const remark = importMappedValue(rawRow, 'remark')
+  const proxy = parseProxy(proxyRaw)
+  let message = '可导入'
+  if (!email) {
+    message = '缺少邮箱'
+  } else if (!password) {
+    message = '缺少密码'
+  } else if (proxyRaw && (!proxy.host || !proxy.port)) {
+    message = '代理格式错误'
+  }
+  return {
+    index: rawRow.index,
+    email,
+    password,
+    proxyRaw,
+    proxy,
+    remark,
+    valid: message === '可导入',
+    message
+  }
+}
+
+function parseImportRows() {
+  return importPreviewRows.value.filter(row => row.valid)
 }
 
 function parseProxy(value) {
@@ -695,7 +853,7 @@ function buildImportPayload(row) {
     ...defaultForm(),
     name: row.email,
     email: row.email,
-    remark: importForm.remark,
+    remark: row.remark || importForm.remark,
     protocol: importForm.protocol,
     imapHost: importForm.imapHost.trim(),
     imapPort: importForm.imapPort,
@@ -738,19 +896,12 @@ async function findExistingImportAccount(email) {
 async function saveImport() {
   const rows = parseImportRows()
   if (rows.length === 0) {
-    ElMessage({message: '请填写账号列表', type: 'warning', plain: true})
+    ElMessage({message: '没有可导入的账号', type: 'warning', plain: true})
     return
   }
 
-  const invalid = rows.find(row => !row.email)
-  if (invalid) {
-    ElMessage({message: `第 ${invalid.index} 行格式错误`, type: 'error', plain: true})
-    return
-  }
-
-  const invalidProxy = rows.find(row => row.proxyRaw && (!row.proxy.host || !row.proxy.port))
-  if (invalidProxy) {
-    ElMessage({message: `第 ${invalidProxy.index} 行代理格式错误`, type: 'error', plain: true})
+  if (importStats.value.invalid > 0) {
+    ElMessage({message: '存在预检异常，请先修正映射或文本', type: 'warning', plain: true})
     return
   }
 
@@ -815,6 +966,20 @@ async function saveImport() {
 
 function syncAfterSave(externalAccountId) {
   return externalAccountSync(externalAccountId, 5)
+}
+
+function nextImportStep() {
+  if (!canGoNextImportStep.value) {
+    return
+  }
+  if (importStep.value === 1) {
+    syncDefaultImportMappings()
+  }
+  importStep.value = Math.min(importStep.value + 1, 3)
+}
+
+function prevImportStep() {
+  importStep.value = Math.max(importStep.value - 1, 1)
 }
 
 async function saveBatchMark() {
@@ -1083,6 +1248,153 @@ function statusText(status) {
   margin-bottom: 16px;
 }
 
+.import-dialog {
+  :deep(.el-dialog__header) {
+    padding: 0;
+    margin: 0;
+  }
+  :deep(.el-dialog__body) {
+    padding: 0;
+  }
+  :deep(.el-dialog__footer) {
+    padding: 16px 24px;
+    border-top: 1px solid var(--el-border-color-lighter);
+  }
+}
+
+.import-header {
+  height: 70px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.import-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.import-close {
+  margin-left: auto;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--el-border-color);
+}
+
+.import-panel {
+  padding: 22px 24px 24px;
+}
+
+.import-config-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 150px minmax(220px, 0.8fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.import-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  min-width: 0;
+}
+
+.compact-field {
+  min-width: 130px;
+}
+
+.import-port-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  :deep(.el-input-number) {
+    width: 120px;
+  }
+}
+
+.import-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.preview-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.import-stat {
+  min-height: 46px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+  &.success {
+    color: var(--el-color-success);
+    background: var(--el-color-success-light-9);
+  }
+  &.warning {
+    color: var(--el-color-warning);
+    background: var(--el-color-warning-light-9);
+  }
+}
+
+.import-text-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.import-textarea {
+  :deep(.el-textarea__inner) {
+    min-height: 330px !important;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+}
+
+.import-help {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+}
+
+.mapping-table,
+.preview-table {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.mapping-status {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
+  font-weight: 600;
+  &.error {
+    color: var(--el-color-warning);
+    background: var(--el-color-warning-light-9);
+  }
+}
+
 .import-form {
   .import-result {
     width: 100%;
@@ -1099,6 +1411,25 @@ function statusText(status) {
   }
 }
 
+.import-result {
+  margin-top: 14px;
+  max-height: 150px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  line-height: 1.8;
+  font-size: 13px;
+}
+
+.success {
+  color: var(--el-color-success);
+}
+
+.error {
+  color: var(--el-color-danger);
+}
+
 .import-progress {
   margin-right: 12px;
   color: var(--el-text-color-secondary);
@@ -1111,6 +1442,11 @@ function statusText(status) {
   }
   .account-form {
     padding-right: 0;
+  }
+  .import-config-grid,
+  .import-stat-grid,
+  .preview-stats {
+    grid-template-columns: 1fr;
   }
 }
 </style>
