@@ -15,7 +15,10 @@ const analysisDao = {
 				COALESCE(u.delUserTotal, 0) AS delUserTotal,
 				COALESCE(a.accountTotal, 0) AS accountTotal,
 				COALESCE(a.normalAccountTotal, 0) AS normalAccountTotal,
-				COALESCE(a.delAccountTotal, 0) AS delAccountTotal
+				COALESCE(a.delAccountTotal, 0) AS delAccountTotal,
+				COALESCE(ea.externalAccountTotal, 0) AS externalAccountTotal,
+				COALESCE(ea.normalExternalAccountTotal, 0) AS normalExternalAccountTotal,
+				COALESCE(ea.delExternalAccountTotal, 0) AS delExternalAccountTotal
             FROM
                 (
                     SELECT
@@ -41,10 +44,18 @@ const analysisDao = {
                     COUNT(*) AS accountTotal,
                     SUM(CASE WHEN is_del = 1 THEN 1 ELSE 0 END) AS delAccountTotal,
                     SUM(CASE WHEN is_del = 0 THEN 1 ELSE 0 END) AS normalAccountTotal
-                FROM
-                    account
-            ) a
-        `).all();
+	                FROM
+	                    account
+	            ) a
+	            CROSS JOIN (
+	                SELECT
+	                    COUNT(*) AS externalAccountTotal,
+	                    SUM(CASE WHEN is_del = 1 THEN 1 ELSE 0 END) AS delExternalAccountTotal,
+	                    SUM(CASE WHEN is_del = 0 THEN 1 ELSE 0 END) AS normalExternalAccountTotal
+	                FROM
+	                    external_account
+	            ) ea
+	        `).all();
 		return results[0];
 	},
 
@@ -98,6 +109,23 @@ const analysisDao = {
             ORDER BY
                 date ASC
         `).all();
+		return results;
+	},
+
+	async externalAccountDayCount(c, diffHours) {
+		const { results } = await c.env.db.prepare(`
+	            SELECT
+	                DATE(create_time,'+${diffHours} hours') AS date,
+	                COUNT(*) AS total
+	            FROM
+	                external_account
+	            WHERE
+	                DATE(create_time,'+${diffHours} hours') BETWEEN DATE('now', '-15 days', '+${diffHours} hours') AND DATE('now','-1 day','+${diffHours} hours')
+	            GROUP BY
+	                DATE(create_time,'+${diffHours} hours')
+	            ORDER BY
+	                date ASC
+	        `).all();
 		return results;
 	}
 

@@ -65,6 +65,25 @@
         <div class="number-item">
           <div class="top">
             <div class="left">
+              <div>{{ $t('externalMailboxes') }}</div>
+              <div>
+                <el-statistic :formatter="value => Math.round(value)" :value="externalAccountData"/>
+              </div>
+            </div>
+            <div class="right">
+              <div class="count-icon">
+                <Icon icon="mdi:cloud-mail-outline" width="25" height="25"></Icon>
+              </div>
+            </div>
+          </div>
+          <div class="delete-ratio">
+            <div>{{ $t('active') }} <span class="normal">{{ numberCount.normalExternalAccountTotal }}</span></div>
+            <div>{{ $t('deleted') }} <span class="deleted">{{ numberCount.delExternalAccountTotal }}</span></div>
+          </div>
+        </div>
+        <div class="number-item">
+          <div class="top">
+            <div class="left">
               <div>{{ $t('totalUsers') }}</div>
               <div>
                 <el-statistic :formatter="value => Math.round(value)" :value="userData"/>
@@ -97,17 +116,15 @@
 
           </div>
         </div>
-        <div class="picture-item">
-          <div class="title">{{ $t('userGrowth') }}</div>
-          <div class="increase-line">
-
-          </div>
-        </div>
       </div>
       <div class="picture-cs">
         <div class="picture-cs-item">
           <div class="title">{{ $t('emailGrowth') }}</div>
           <div class="email-column"></div>
+        </div>
+        <div class="picture-cs-item">
+          <div class="title">{{ $t('externalMailboxGrowth') }}</div>
+          <div class="external-account-column"></div>
         </div>
         <div class="picture-cs-item">
           <div class="title">{{ $t('sentToday') }}</div>
@@ -142,6 +159,7 @@ const checkedSourceType = ref('sender')
 const receiveTotal = ref(0)
 const sendTotal = ref(0)
 const accountTotal = ref(0)
+const externalAccountTotal = ref(0)
 const userTotal = ref(0)
 const analysisLoading = ref(true)
 
@@ -149,10 +167,12 @@ const numberCount = reactive({
   normalReceiveTotal: 0,
   normalSendTotal: 0,
   normalAccountTotal: 0,
+  normalExternalAccountTotal: 0,
   normalUserTotal: 0,
   delReceiveTotal: 0,
   delSendTotal: 0,
   delAccountTotal: 0,
+  delExternalAccountTotal: 0,
   delUserTotal: 0
 })
 
@@ -169,19 +189,24 @@ const accountData = useTransition(accountTotal, {
   duration: 1500,
 })
 
+const externalAccountData = useTransition(externalAccountTotal, {
+  duration: 1500,
+})
+
 const userData = useTransition(userTotal, {
   duration: 1500,
 })
 
 const senderData = ref(null)
-const userLineData = reactive({
-  xdata: [],
-  sdata: []
-})
 
 const emailColumnData = {
   receiveData: [],
   sendData: [],
+  daysData: []
+}
+
+const externalAccountColumnData = {
+  countData: [],
   daysData: []
 }
 
@@ -199,8 +224,8 @@ const topic = computed(() => ({
 let daySendTotal = 0
 let leaveWidth = 0
 let senderPie = null
-let increaseLine = null
 let emailColumn = null
+let externalAccountColumn = null
 let sendGauge = null
 let first = true
 let boxKey = ref(0)
@@ -214,14 +239,17 @@ onMounted(() => {
     receiveTotal.value = data.numberCount.receiveTotal
     sendTotal.value = data.numberCount.sendTotal
     accountTotal.value = data.numberCount.accountTotal
+    externalAccountTotal.value = data.numberCount.externalAccountTotal || 0
     userTotal.value = data.numberCount.userTotal
     numberCount.normalReceiveTotal = data.numberCount.normalReceiveTotal
     numberCount.normalSendTotal = data.numberCount.normalSendTotal
     numberCount.normalAccountTotal = data.numberCount.normalAccountTotal
+    numberCount.normalExternalAccountTotal = data.numberCount.normalExternalAccountTotal || 0
     numberCount.normalUserTotal = data.numberCount.normalUserTotal
     numberCount.delReceiveTotal = data.numberCount.delReceiveTotal
     numberCount.delSendTotal = data.numberCount.delSendTotal
     numberCount.delAccountTotal = data.numberCount.delAccountTotal
+    numberCount.delExternalAccountTotal = data.numberCount.delExternalAccountTotal || 0
     numberCount.delUserTotal = data.numberCount.delUserTotal
     senderData.value = data.receiveRatio.nameRatio.map(item => {
       return {
@@ -230,12 +258,11 @@ onMounted(() => {
       }
     })
 
-    userLineData.xdata = data.userDayCount.map(item => dayjs(item.date).format("M.D"));
-    userLineData.sdata = data.userDayCount.map(item => item.total)
-
     emailColumnData.daysData = data.emailDayCount.receiveDayCount.map(item => dayjs(item.date).format("M.D"))
     emailColumnData.receiveData = data.emailDayCount.receiveDayCount.map(item => item.total)
     emailColumnData.sendData = data.emailDayCount.sendDayCount.map(item => item.total)
+    externalAccountColumnData.daysData = (data.externalAccountDayCount || []).map(item => dayjs(item.date).format("M.D"))
+    externalAccountColumnData.countData = (data.externalAccountDayCount || []).map(item => item.total)
     daySendTotal = data.daySendTotal
     analysisLoading.value = false
     initPicture();
@@ -288,8 +315,8 @@ function initPicture() {
   boxKey.value++
   setTimeout(() => {
     createSenderPie()
-    createIncreaseLine()
     createEmailColumnChart();
+    createExternalAccountColumnChart();
     createSendGauge();
   })
 }
@@ -381,163 +408,6 @@ function createSenderPie() {
     ]
   }
   senderPie.setOption(option)
-}
-
-function createIncreaseLine() {
-
-  if (increaseLine) {
-    increaseLine.dispose()
-  }
-
-  increaseLine = echarts.init(document.querySelector(".increase-line"))
-
-  let option = {
-    tooltip: {
-      trigger: 'axis', // 设置触发方式为 'axis'，在坐标轴上显示信息
-      axisPointer: {
-        type: 'cross', // 指示器的类型为交叉型，适用于折线图等
-        crossStyle: {
-          color: topic.value.crossColor// 设置指示器线的颜色
-        },
-        lineStyle: {
-          color: topic.value.crossColor         // ← 竖线颜色
-        },
-        axis: 'x',
-      },
-      formatter: function (params) {
-        let result = ''
-        params.forEach(item => {
-          result = `${item.marker} ${t('growthTotalUsers')} ${item.value}`;
-        });
-        return result;
-      },
-      backgroundColor: topic.value.background,  // 设置背景颜色
-      borderColor: topic.value.splitLineColor,      // 设置边框颜色
-      borderWidth: 1,           // 设置边框宽度
-      padding: 10,              // 设置内边距
-      textStyle: {
-        color: topic.value.color,          // 设置文字颜色
-      }
-    },
-    grid: {
-      top: '8%',
-      right: '20',
-      left: '35',
-      bottom: '35'
-    },
-    xAxis: {
-      type: 'category',
-      data: userLineData.xdata,
-      axisTick: {
-        show: false,
-        alignWithLabel: false,  // 刻度线与标签对齐,
-        lineStyle: {
-          color: topic.value.axisColor,
-        }
-      },
-      axisPointer: {
-        label: {
-          show: false
-        }
-      },
-      axisLine: {
-        lineStyle: {
-          color: topic.value.axisColor,
-          width: 1,
-          type: 'solid'
-        }
-      },
-      axisLabel: {
-        formatter: function (value, index) {
-          if (index === 0) {
-            return '      ' + value;
-          }
-          if (index === userLineData.xdata.length - 1) {
-            return value + '   '
-          }
-          return value;
-        },
-
-      },
-      boundaryGap: false,
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: {
-        margin: 5, // 增加y轴刻度数字与网格线之间的间距
-      },
-      boundaryGap: [0, 0.1],
-      max: (params) => {
-        if (params.max < 8) {
-          return 10
-        }
-      },
-      axisLine: {
-        show: true,
-        lineStyle: {
-          color: topic.value.axisColor,
-          width: 1,
-        }
-      },
-      axisPointer: {
-        label: {
-          show: true,
-          formatter: (e) => {
-            return Math.round(e.value)
-          }
-        }
-      },
-      splitLine: {
-        show: true, // 显示网格线
-        lineStyle: {
-          type: 'dashed', // 设置网格线为虚线
-          color: topic.value.scaleLineColor   // 设置虚线的颜色
-        }
-      }
-    },
-    series: [
-      {
-
-        data: userLineData.sdata,
-        type: 'line',
-        smooth: 0.1,
-        symbol: 'none',
-        lineStyle: {
-          color: '#1D84FF',
-          width: 2.5
-        },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            {
-              offset: 0,
-              color: 'rgba(29, 132, 255, 0.3)'
-            },
-            {
-              offset: 1,
-              color: 'rgba(29, 132, 255, 0.03)'
-            }
-          ])
-        },
-        color: ['#1D84FF'],
-      }
-    ]
-  };
-  increaseLine.setOption(option);
-
-  let max = increaseLine.getModel().getComponent('yAxis', 0).axis.scale.getExtent()[1];
-
-  let left = 35
-
-  if (max > 99) left = 42
-  if (max > 999) left = 51
-  if (max > 9999) left = 58
-  if (max > 99999) left = 66
-
-  increaseLine.setOption({
-    grid: {
-      left: left
-    }
-  });
 }
 
 function createEmailColumnChart() {
@@ -648,6 +518,92 @@ function createEmailColumnChart() {
   };
 
   emailColumn.setOption(option);
+}
+
+function createExternalAccountColumnChart() {
+
+  if (externalAccountColumn) {
+    externalAccountColumn.dispose()
+  }
+
+  externalAccountColumn = echarts.init(document.querySelector(".external-account-column"));
+
+  const option = {
+    tooltip: {
+      textStyle: {
+        color: topic.value.color
+      },
+      backgroundColor: topic.value.background,
+      formatter: function (params) {
+        return `${params.marker} ${params.seriesName}: ${params.value}`
+      }
+    },
+    grid: {
+      left: '18',
+      right: '18',
+      bottom: '15',
+      top: '35',
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: externalAccountColumnData.daysData,
+      axisTick: {
+        show: false,
+      },
+      axisLine: {
+        show: true,
+        lineStyle: {
+          color: topic.value.axisColor,
+          width: 1,
+        }
+      },
+    },
+    yAxis: {
+      max: (params) => {
+        if (params.max < 8) {
+          return 10
+        }
+      },
+      splitLine: {
+        show: true,
+        lineStyle: {
+          color: topic.value.splitLineColor,
+          type: 'solid',
+          width: 1
+        }
+      },
+      axisLine: {
+        show: true,
+        lineStyle: {
+          color: topic.value.axisColor,
+          width: 0,
+        }
+      },
+      type: 'value',
+      boundaryGap: [0, 0.1],
+    },
+    series: [
+      {
+        name: t('externalMailboxAdded'),
+        type: 'bar',
+        barWidth: '60%',
+        barMaxWidth: 30,
+        emphasis: {
+          itemStyle: {
+            shadowBlur: 10,
+            shadowColor: 'rgba(0,0,0,0.3)',
+          }
+        },
+        data: externalAccountColumnData.countData,
+        itemStyle: {
+          color: '#7C3AED',
+        }
+      }
+    ]
+  };
+
+  externalAccountColumn.setOption(option);
 }
 
 function createSendGauge() {
@@ -766,12 +722,8 @@ function createSendGauge() {
 
   .number {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 20px;
-    @media (max-width: 1366px) {
-      grid-template-columns: 1fr 1fr;
-      gap: 15px;
-    }
     @media (max-width: 767px) {
       grid-template-columns: 1fr;
     }
@@ -853,7 +805,7 @@ function createSendGauge() {
 
   .picture {
     display: grid;
-    grid-template-columns: 500px 1fr;
+    grid-template-columns: 1fr;
     gap: 20px;
     @media (max-width: 1620px) {
       grid-template-columns: 1fr;
@@ -884,18 +836,12 @@ function createSendGauge() {
         }
       }
 
-      .increase-line {
-        height: 350px;
-        @media (max-width: 767px) {
-          height: 280px;
-        }
-      }
     }
   }
 
   .picture-cs {
     display: grid;
-    grid-template-columns: 1fr 500px;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
     gap: 20px;
     @media (max-width: 1620px) {
       grid-template-columns: 1fr;
@@ -920,19 +866,18 @@ function createSendGauge() {
           height: 250px;
         }
       }
+
+      .external-account-column {
+        height: 350px;
+        @media (max-width: 767px) {
+          height: 250px;
+        }
+      }
     }
   }
 }
 
 </style>
-
-
-
-
-
-
-
-
 
 
 
