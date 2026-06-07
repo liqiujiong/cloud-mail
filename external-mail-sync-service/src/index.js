@@ -6,6 +6,9 @@ import http from 'node:http';
 
 const PORT = Number(process.env.PORT || 8788);
 const MAX_LIMIT = 100;
+const IMAP_CONNECTION_TIMEOUT = Number(process.env.IMAP_CONNECTION_TIMEOUT || 15000);
+const IMAP_GREETING_TIMEOUT = Number(process.env.IMAP_GREETING_TIMEOUT || 10000);
+const IMAP_SOCKET_TIMEOUT = Number(process.env.IMAP_SOCKET_TIMEOUT || 30000);
 
 function assertInternalToken(req) {
 	const token = req.headers['x-internal-token'];
@@ -91,11 +94,16 @@ async function withImapClient(payload, fn) {
 		host: imap.host,
 		port: Number(imap.port || 993),
 		secure: imap.secure !== false,
+		doSTARTTLS: imap.secure === false ? false : undefined,
 		auth: {
 			user: imap.username,
-			pass: imap.password
+			pass: imap.password,
+			loginMethod: 'LOGIN'
 		},
 		proxy: proxyUrl(payload.proxy),
+		connectionTimeout: IMAP_CONNECTION_TIMEOUT,
+		greetingTimeout: IMAP_GREETING_TIMEOUT,
+		socketTimeout: IMAP_SOCKET_TIMEOUT,
 		logger: false
 	});
 
