@@ -74,6 +74,7 @@
         </el-table-column>
         <el-table-column label="名称" prop="name" min-width="140"/>
         <el-table-column label="邮箱" prop="email" min-width="210"/>
+        <el-table-column label="原始邮箱" prop="originalEmail" min-width="210" show-overflow-tooltip/>
         <el-table-column label="备注" prop="remark" min-width="150" show-overflow-tooltip/>
         <el-table-column label="协议" width="90">
           <template #default="props">
@@ -147,6 +148,9 @@
       <el-form label-width="110px" class="account-form">
         <el-form-item label="邮箱地址">
           <el-input v-model="form.email" autocomplete="off"/>
+        </el-form-item>
+        <el-form-item label="原始邮箱">
+          <el-input v-model="form.originalEmail" autocomplete="off" placeholder="留空默认跟邮箱地址一致"/>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.remark" autocomplete="off"/>
@@ -290,6 +294,7 @@
           <el-table class="preview-table" :data="importPreviewRows" border>
             <el-table-column label="行" prop="index" width="70"/>
             <el-table-column label="邮箱" prop="email" min-width="210" show-overflow-tooltip/>
+            <el-table-column label="原始邮箱" prop="originalEmail" min-width="210" show-overflow-tooltip/>
             <el-table-column label="密码" width="100">
               <template #default="props">{{ props.row.password ? '已填' : '-' }}</template>
             </el-table-column>
@@ -419,6 +424,7 @@ const importStepOptions = [
 const importFieldOptions = [
   {label: '忽略', value: ''},
   {label: '邮箱 *', value: 'email'},
+  {label: '原始邮箱', value: 'originalEmail'},
   {label: '密码 *', value: 'password'},
   {label: 'SOCKS5 代理', value: 'proxy'},
   {label: '备注', value: 'remark'}
@@ -522,6 +528,7 @@ function defaultForm() {
     externalAccountId: null,
     name: '',
     email: '',
+    originalEmail: '',
     remark: '',
     protocol: 'IMAP',
     imapHost: '',
@@ -726,6 +733,7 @@ function buildFormPayload() {
   return {
     externalAccountId: form.externalAccountId,
     email,
+    originalEmail: form.originalEmail.trim() || email,
     remark: form.remark,
     name: email,
     protocol: form.protocol,
@@ -785,6 +793,7 @@ function importMappedValue(rawRow, field) {
 
 function toImportPreviewRow(rawRow) {
   const email = importMappedValue(rawRow, 'email')
+  const originalEmail = importMappedValue(rawRow, 'originalEmail')
   const password = importMappedValue(rawRow, 'password')
   const proxyRaw = importMappedValue(rawRow, 'proxy')
   const remark = importMappedValue(rawRow, 'remark')
@@ -800,6 +809,7 @@ function toImportPreviewRow(rawRow) {
   return {
     index: rawRow.index,
     email,
+    originalEmail: originalEmail || email,
     password,
     proxyRaw,
     proxy,
@@ -853,6 +863,7 @@ function buildImportPayload(row) {
     ...defaultForm(),
     name: row.email,
     email: row.email,
+    originalEmail: row.originalEmail || row.email,
     remark: row.remark || importForm.remark,
     protocol: importForm.protocol,
     imapHost: importForm.imapHost.trim(),

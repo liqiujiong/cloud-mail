@@ -71,7 +71,7 @@
           <el-option
               v-for="item in externalAccounts"
               :key="item.externalAccountId"
-              :label="item.email"
+              :label="externalAccountOptionLabel(item)"
               :value="item.externalAccountId"
           />
         </el-select>
@@ -367,6 +367,13 @@ function loadExternalAccounts(keyword = '') {
       externalAccountLoading.value = false
     })
   }, 350)
+}
+
+function externalAccountOptionLabel(item) {
+  if (item.originalEmail && item.originalEmail !== item.email) {
+    return `${item.email} / ${item.originalEmail}`
+  }
+  return item.email
 }
 
 async function syncSelectedExternalAccount(silent = false) {

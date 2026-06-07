@@ -22,6 +22,20 @@ import domainUtils from '../utils/domain-uitls';
 import account from "../entity/account";
 import { att } from '../entity/att';
 import telegramService from './telegram-service';
+import externalAccount from '../entity/external-account';
+
+async function ensureExternalOriginalEmailColumn(c) {
+	try {
+		await c.env.db.prepare(`ALTER TABLE external_account ADD COLUMN original_email TEXT NOT NULL DEFAULT '';`).run();
+	} catch {
+		// Column already exists on initialized databases.
+	}
+	try {
+		await c.env.db.prepare(`UPDATE external_account SET original_email = email WHERE original_email = '';`).run();
+	} catch {
+		// Keep list endpoints available during rollout.
+	}
+}
 
 const emailService = {
 
@@ -784,6 +798,7 @@ const emailService = {
 	},
 
 	async allList(c, params) {
+		await ensureExternalOriginalEmailColumn(c);
 
 		let { emailId, size, name, subject, accountEmail, toEmail, userEmail, type, timeSort, sourceType, externalAccountId } = params;
 
@@ -868,9 +883,10 @@ const emailService = {
 			conditions.unshift(lt(email.emailId, emailId));
 		}
 
-		const query = orm(c).select({ ...email, userEmail: user.email })
+		const query = orm(c).select({ ...email, userEmail: user.email, originalEmail: externalAccount.originalEmail })
 			.from(email)
 			.leftJoin(user, eq(email.userId, user.userId))
+			.leftJoin(externalAccount, eq(email.externalAccountId, externalAccount.externalAccountId))
 			.where(and(...conditions));
 
 		const queryCount = orm(c).select({ total: count() })
@@ -909,6 +925,7 @@ const emailService = {
 	},
 
 	async allEmailLatest(c, params) {
+		await ensureExternalOriginalEmailColumn(c);
 
 		let { emailId, type, sourceType, externalAccountId } = params;
 		externalAccountId = Number(externalAccountId || 0);
@@ -931,8 +948,9 @@ const emailService = {
 			conditions.push(eq(email.externalAccountId, externalAccountId));
 		}
 
-		let list = await orm(c).select({...email, userEmail: user.email}).from(email)
+		let list = await orm(c).select({...email, userEmail: user.email, originalEmail: externalAccount.originalEmail}).from(email)
 			.leftJoin(user, eq(email.userId, user.userId))
+			.leftJoin(externalAccount, eq(email.externalAccountId, externalAccount.externalAccountId))
 			.where(and(...conditions))
 			.orderBy(desc(email.emailId))
 			.limit(20);

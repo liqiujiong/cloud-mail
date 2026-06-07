@@ -104,6 +104,12 @@
                       </span>
                       <span>{{ item.type === 0 ? item.toEmail : item.sendEmail }}</span>
                     </div>
+                    <div class="account" v-if="item.originalEmail">
+                      <span>
+                        <Icon icon="mdi-light:email-open" width="20" height="20"/>
+                      </span>
+                      <span>{{ item.originalEmail }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
