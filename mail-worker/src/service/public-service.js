@@ -17,19 +17,6 @@ import userService from './user-service';
 import KvConst from '../const/kv-const';
 import externalAccountService from './external-account-service';
 
-async function ensureExternalOriginalEmailColumn(c) {
-	try {
-		await c.env.db.prepare(`ALTER TABLE external_account ADD COLUMN original_email TEXT NOT NULL DEFAULT '';`).run();
-	} catch {
-		// Column already exists on initialized databases.
-	}
-	try {
-		await c.env.db.prepare(`UPDATE external_account SET original_email = email WHERE original_email = '';`).run();
-	} catch {
-		// Keep public endpoints available during rollout.
-	}
-}
-
 const publicService = {
 
 	async emailList(c, params) {
@@ -110,7 +97,6 @@ const publicService = {
 	},
 
 	async mailboxEmailList(c, params) {
-		await ensureExternalOriginalEmailColumn(c);
 		const mailboxEmail = String(params.email || '').trim();
 		const size = Math.min(Math.max(Number(params.size || 5), 1), 50);
 		const type = params.type ?? emailConst.type.RECEIVE;

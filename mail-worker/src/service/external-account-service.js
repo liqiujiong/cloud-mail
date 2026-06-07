@@ -61,19 +61,6 @@ function sourceTypeByProtocol(protocol) {
 		: emailConst.sourceType.EXTERNAL_IMAP;
 }
 
-async function ensureOriginalEmailColumn(c) {
-	try {
-		await c.env.db.prepare(`ALTER TABLE external_account ADD COLUMN original_email TEXT NOT NULL DEFAULT '';`).run();
-	} catch {
-		// Column already exists on initialized databases.
-	}
-	try {
-		await c.env.db.prepare(`UPDATE external_account SET original_email = email WHERE original_email = '';`).run();
-	} catch {
-		// Keep request flow available even if a legacy database is mid-migration.
-	}
-}
-
 async function toNodePayload(c, row, limit) {
 	const password = await secretCryptoUtils.decrypt(c, row.passwordEncrypted);
 	const proxyPassword = await secretCryptoUtils.decrypt(c, row.proxyPasswordEncrypted);
@@ -157,7 +144,6 @@ async function getAdminUserId(c) {
 
 const externalAccountService = {
 	async list(c, params, userId) {
-		await ensureOriginalEmailColumn(c);
 		const userRow = c.get('user');
 		const conditions = [eq(externalAccount.isDel, isDel.NORMAL)];
 		if (userRow.email !== c.env.admin) {
@@ -249,7 +235,6 @@ const externalAccountService = {
 	},
 
 	async detail(c, externalAccountId, userId, options = {}) {
-		await ensureOriginalEmailColumn(c);
 		const row = await orm(c).select().from(externalAccount).where(and(
 			eq(externalAccount.externalAccountId, Number(externalAccountId)),
 			eq(externalAccount.isDel, isDel.NORMAL)
@@ -269,7 +254,6 @@ const externalAccountService = {
 	},
 
 	async add(c, params, userId) {
-		await ensureOriginalEmailColumn(c);
 		const protocol = normalizeProtocol(params.protocol);
 		if (![externalAccountConst.protocol.IMAP, externalAccountConst.protocol.POP3].includes(protocol)) {
 			throw new BizError('Protocol must be IMAP or POP3');
@@ -321,7 +305,6 @@ const externalAccountService = {
 	},
 
 	async update(c, params, userId) {
-		await ensureOriginalEmailColumn(c);
 		const row = await this.detail(c, params.externalAccountId, userId);
 		await this.checkDuplicate(c, params.email, row.userId, row.externalAccountId);
 		const data = await this.toSaveData(c, params, row.userId, row);
@@ -411,7 +394,6 @@ const externalAccountService = {
 	},
 
 	async export(c, params, userId) {
-		await ensureOriginalEmailColumn(c);
 		const ids = Array.isArray(params.externalAccountIds) ? params.externalAccountIds : [];
 		const accountIds = ids.map(id => Number(id)).filter(Boolean);
 		if (accountIds.length === 0) {
@@ -540,7 +522,6 @@ const externalAccountService = {
 	},
 
 	async ingest(c, payload) {
-		await ensureOriginalEmailColumn(c);
 		const row = await orm(c).select().from(externalAccount).where(and(
 			eq(externalAccount.externalAccountId, Number(payload.externalAccountId)),
 			eq(externalAccount.isDel, isDel.NORMAL)

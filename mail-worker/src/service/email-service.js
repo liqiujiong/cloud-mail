@@ -24,19 +24,6 @@ import { att } from '../entity/att';
 import telegramService from './telegram-service';
 import externalAccount from '../entity/external-account';
 
-async function ensureExternalOriginalEmailColumn(c) {
-	try {
-		await c.env.db.prepare(`ALTER TABLE external_account ADD COLUMN original_email TEXT NOT NULL DEFAULT '';`).run();
-	} catch {
-		// Column already exists on initialized databases.
-	}
-	try {
-		await c.env.db.prepare(`UPDATE external_account SET original_email = email WHERE original_email = '';`).run();
-	} catch {
-		// Keep list endpoints available during rollout.
-	}
-}
-
 const emailService = {
 
 	async list(c, params, userId) {
@@ -798,8 +785,6 @@ const emailService = {
 	},
 
 	async allList(c, params) {
-		await ensureExternalOriginalEmailColumn(c);
-
 		let { emailId, size, name, subject, accountEmail, toEmail, userEmail, type, timeSort, sourceType, externalAccountId } = params;
 
 		size = Number(size);
@@ -925,8 +910,6 @@ const emailService = {
 	},
 
 	async allEmailLatest(c, params) {
-		await ensureExternalOriginalEmailColumn(c);
-
 		let { emailId, type, sourceType, externalAccountId } = params;
 		externalAccountId = Number(externalAccountId || 0);
 
