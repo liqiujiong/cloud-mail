@@ -315,10 +315,11 @@
       </div>
       <template #footer>
         <span class="import-progress" v-if="importSaving">正在导入 {{ importProgress.done }}/{{ importProgress.total }}</span>
-        <el-button @click="importShow = false" :disabled="importSaving">取消</el-button>
+        <span class="import-progress" v-else-if="importSyncing">后台同步 {{ importSyncProgress.done }}/{{ importSyncProgress.total }}</span>
+        <el-button @click="importShow = false">取消</el-button>
         <el-button v-if="importStep > 1" :disabled="importSaving" @click="prevImportStep">上一步</el-button>
         <el-button v-if="importStep < 3" type="primary" :disabled="!canGoNextImportStep" @click="nextImportStep">下一步</el-button>
-        <el-button v-else type="primary" :loading="importSaving" :disabled="importPreviewRows.length === 0 || importStats.invalid > 0" @click="saveImport">确认导入</el-button>
+        <el-button v-else type="primary" :loading="importSaving" :disabled="importSaving || importPreviewRows.length === 0 || importStats.invalid > 0" @click="saveImport">确认导入</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="batchMarkShow" title="批量标记外部邮箱" width="560px" @closed="resetBatchMarkForm">
@@ -380,6 +381,7 @@ const batchMarkShow = ref(false)
 const importStep = ref(1)
 const saving = ref(false)
 const importSaving = ref(false)
+const importSyncing = ref(false)
 const batchMarkSaving = ref(false)
 const testSaving = ref(false)
 const testingId = ref(0)
@@ -399,6 +401,11 @@ const importProgress = reactive({
   done: 0,
   total: 0
 })
+const importSyncProgress = reactive({
+  done: 0,
+  total: 0
+})
+let importRunId = 0
 const pagination = reactive({
   page: 1,
   size: 50,
@@ -568,12 +575,16 @@ function resetForm() {
 }
 
 function resetImportForm() {
+  importRunId++
   Object.assign(importForm, defaultImportForm())
   importStep.value = 1
   importMappings.value = []
   importResult.value = []
   importProgress.done = 0
   importProgress.total = 0
+  importSyncing.value = false
+  importSyncProgress.done = 0
+  importSyncProgress.total = 0
 }
 
 function resetBatchMarkForm() {
@@ -905,6 +916,7 @@ async function findExistingImportAccount(email) {
 }
 
 async function saveImport() {
+  const runId = ++importRunId
   const rows = parseImportRows()
   if (rows.length === 0) {
     ElMessage({message: '没有可导入的账号', type: 'warning', plain: true})
@@ -917,9 +929,12 @@ async function saveImport() {
   }
 
   importSaving.value = true
+  importSyncing.value = false
   importResult.value = []
   importProgress.done = 0
   importProgress.total = rows.length
+  importSyncProgress.done = 0
+  importSyncProgress.total = 0
   const syncTargets = []
 
   for (const row of rows) {
@@ -933,12 +948,12 @@ async function saveImport() {
           isFavertive: existing.isFavertive,
           status: existing.status
         })
-        importResult.value.push({email: row.email, success: true, message: '已更新，待同步'})
+        importResult.value.push({email: row.email, success: true, message: '已更新，后台同步中'})
       } else if (!row.password) {
         importResult.value.push({email: row.email, success: false, message: '新账号必须填写密码'})
       } else {
         data = await externalAccountAdd(buildImportPayload(row))
-        importResult.value.push({email: row.email, success: true, message: '已新增，待同步'})
+        importResult.value.push({email: row.email, success: true, message: '已新增，后台同步中'})
       }
       if (data?.externalAccountId) {
         syncTargets.push({externalAccountId: data.externalAccountId, email: row.email})
@@ -950,29 +965,51 @@ async function saveImport() {
     }
   }
 
+  importSaving.value = false
+  const successCount = importResult.value.filter(item => item.success).length
+  const syncText = syncTargets.length ? '；后台同步已开始' : ''
+  ElMessage({message: `导入完成，成功 ${successCount} 个，失败 ${rows.length - successCount} 个${syncText}`, type: successCount ? 'success' : 'warning', plain: true})
+  loadList()
+  runImportSyncQueue(syncTargets, runId)
+}
+
+async function runImportSyncQueue(targets, runId) {
+  const queue = [...targets]
+  if (!queue.length) {
+    return
+  }
+  const isCurrentRun = () => importRunId === runId
+  importSyncing.value = true
+  importSyncProgress.done = 0
+  importSyncProgress.total = queue.length
   let syncSuccess = 0
   let syncFailed = 0
-  for (const target of syncTargets) {
-    const resultItem = importResult.value.find(item => item.email === target.email && item.success)
+  for (const target of queue) {
+    const resultItem = isCurrentRun()
+        ? importResult.value.find(item => item.email === target.email && item.success)
+        : null
     try {
       const data = await syncAfterSave(target.externalAccountId)
       syncSuccess++
       if (resultItem) {
-        resultItem.message = `${resultItem.message.replace('，待同步', '')}，同步新增 ${data?.fetched || 0} 封`
+        resultItem.message = `${resultItem.message.replace('，后台同步中', '')}，同步新增 ${data?.fetched || 0} 封`
       }
     } catch (e) {
       syncFailed++
       if (resultItem) {
-        resultItem.message = `${resultItem.message.replace('，待同步', '')}，同步失败：${e.message || '失败'}`
+        resultItem.message = `${resultItem.message.replace('，后台同步中', '')}，同步失败：${e.message || '失败'}`
+      }
+    } finally {
+      if (isCurrentRun()) {
+        importSyncProgress.done++
       }
     }
   }
-
-  importSaving.value = false
-  const successCount = importResult.value.filter(item => item.success).length
-  const syncText = syncTargets.length ? `；同步成功 ${syncSuccess} 个，失败 ${syncFailed} 个` : ''
-  ElMessage({message: `导入完成，成功 ${successCount} 个，失败 ${rows.length - successCount} 个${syncText}`, type: successCount && !syncFailed ? 'success' : 'warning', plain: true})
-  loadList()
+  if (isCurrentRun()) {
+    importSyncing.value = false
+    ElMessage({message: `后台同步完成，成功 ${syncSuccess} 个，失败 ${syncFailed} 个`, type: syncFailed ? 'warning' : 'success', plain: true})
+    loadList()
+  }
 }
 
 function syncAfterSave(externalAccountId) {
