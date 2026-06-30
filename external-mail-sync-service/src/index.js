@@ -24,6 +24,20 @@ function json(res, status, data) {
 	res.end(JSON.stringify(data));
 }
 
+function safeJson(res, status, data) {
+	if (res.destroyed || res.writableEnded) {
+		return;
+	}
+	try {
+		json(res, status, data);
+	} catch {
+	}
+}
+
+function isClientAbortError(error) {
+	return error?.code === 'ECONNRESET' || /aborted/i.test(error?.message || '');
+}
+
 async function readJson(req) {
 	const chunks = [];
 	for await (const chunk of req) {
@@ -636,18 +650,24 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
-	const payload = await readJson(req);
-	const protocol = normalizeProtocol(payload.protocol);
+	let payload = {};
+	let protocol = '';
 	try {
+		payload = await readJson(req);
+		protocol = normalizeProtocol(payload.protocol);
 		const data = url.pathname === '/sync/test'
 			? (protocol === 'POP3' ? await testPop3(payload) : await testImap(payload))
 			: (protocol === 'POP3' ? await fetchPop3(payload) : await fetchImap(payload));
-		json(res, 200, data);
+		safeJson(res, 200, data);
 		logRequest(200, { protocol, externalAccountId: payload.externalAccountId });
 	} catch (error) {
+		if (isClientAbortError(error)) {
+			logRequest(499, { protocol, externalAccountId: payload.externalAccountId, error: error.code || error.message });
+			return;
+		}
 		const code = mapError(error, protocol);
 		console.warn(JSON.stringify({ code, protocol, externalAccountId: payload.externalAccountId }));
-		json(res, 500, { success: false, error: code, message: code });
+		safeJson(res, 500, { success: false, error: code, message: code });
 		logRequest(500, { protocol, externalAccountId: payload.externalAccountId, error: code });
 	}
 });
