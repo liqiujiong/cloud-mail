@@ -48,6 +48,8 @@ function logSyncEvent(event, payload = {}, extra = {}) {
 		event,
 		protocol,
 		externalAccountId: payload.externalAccountId,
+		accountEmail: payload.accountEmail,
+		originalEmail: payload.originalEmail,
 		host,
 		port,
 		...extra
@@ -71,6 +73,8 @@ function logSyncError(event, error, payload = {}, extra = {}) {
 		...errorDetail(error),
 		protocol: normalizeProtocol(payload.protocol),
 		externalAccountId: payload.externalAccountId,
+		accountEmail: payload.accountEmail,
+		originalEmail: payload.originalEmail,
 		...extra
 	}));
 }
@@ -764,16 +768,33 @@ const server = http.createServer(async (req, res) => {
 			? (protocol === 'POP3' ? await testPop3(payload) : await testImap(payload))
 			: (protocol === 'POP3' ? await fetchPop3(payload) : await fetchImap(payload));
 		safeJson(res, 200, data);
-		logRequest(200, { protocol, externalAccountId: payload.externalAccountId });
+		logRequest(200, {
+			protocol,
+			externalAccountId: payload.externalAccountId,
+			accountEmail: payload.accountEmail,
+			originalEmail: payload.originalEmail
+		});
 	} catch (error) {
 		if (isClientAbortError(error)) {
-			logRequest(499, { protocol, externalAccountId: payload.externalAccountId, error: error.code || error.message });
+			logRequest(499, {
+				protocol,
+				externalAccountId: payload.externalAccountId,
+				accountEmail: payload.accountEmail,
+				originalEmail: payload.originalEmail,
+				error: error.code || error.message
+			});
 			return;
 		}
 		const code = mapError(error, protocol);
 		logSyncError('sync_error', error, payload, { code, path: url.pathname });
 		safeJson(res, 500, { success: false, error: code, message: code });
-		logRequest(500, { protocol, externalAccountId: payload.externalAccountId, error: code });
+		logRequest(500, {
+			protocol,
+			externalAccountId: payload.externalAccountId,
+			accountEmail: payload.accountEmail,
+			originalEmail: payload.originalEmail,
+			error: code
+		});
 	}
 });
 

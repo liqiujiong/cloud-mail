@@ -67,6 +67,8 @@ async function toNodePayload(c, row, limit) {
 	const protocol = normalizeProtocol(row.protocol);
 	const payload = {
 		externalAccountId: row.externalAccountId,
+		accountEmail: row.email,
+		originalEmail: row.originalEmail || '',
 		protocol,
 		limit,
 		imap: {
