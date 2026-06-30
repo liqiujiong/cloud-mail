@@ -38,6 +38,43 @@ function isClientAbortError(error) {
 	return error?.code === 'ECONNRESET' || /aborted/i.test(error?.message || '');
 }
 
+function logSyncEvent(event, payload = {}, extra = {}) {
+	const imap = payload.imap || {};
+	const pop3 = payload.pop3 || {};
+	const protocol = normalizeProtocol(payload.protocol);
+	const host = protocol === 'POP3' ? pop3.host : imap.host;
+	const port = protocol === 'POP3' ? pop3.port : imap.port;
+	console.log(JSON.stringify({
+		event,
+		protocol,
+		externalAccountId: payload.externalAccountId,
+		host,
+		port,
+		...extra
+	}));
+}
+
+function errorDetail(error) {
+	return {
+		name: error?.name,
+		code: error?.code,
+		message: error?.message,
+		command: error?.command,
+		response: error?.response || error?.serverResponse,
+		connId: error?._connId
+	};
+}
+
+function logSyncError(event, error, payload = {}, extra = {}) {
+	console.warn(JSON.stringify({
+		event,
+		...errorDetail(error),
+		protocol: normalizeProtocol(payload.protocol),
+		externalAccountId: payload.externalAccountId,
+		...extra
+	}));
+}
+
 async function readJson(req) {
 	const chunks = [];
 	for await (const chunk of req) {
@@ -143,11 +180,13 @@ async function readProbeBanner(payload) {
 
 async function resolveImapMode(payload) {
 	if (payload.imap?.secure !== false) {
+		logSyncEvent('imap_mode', payload, { mode: 'imapflow', reason: 'secure' });
 		return 'imapflow';
 	}
 	const key = imapCacheKey(payload);
 	const cached = imapModeCache.get(key);
 	if (cached) {
+		logSyncEvent('imap_mode', payload, { mode: cached, reason: 'cache' });
 		return cached;
 	}
 	let mode = 'imapflow';
@@ -156,8 +195,10 @@ async function resolveImapMode(payload) {
 		if (/proxy ready/i.test(banner)) {
 			mode = 'raw-proxy';
 		}
+		logSyncEvent('imap_mode', payload, { mode, reason: 'probe', banner });
 	} catch {
 		mode = 'imapflow';
+		logSyncEvent('imap_mode', payload, { mode, reason: 'probe_failed' });
 	}
 	imapModeCache.set(key, mode);
 	return mode;
@@ -330,6 +371,7 @@ function mapError(error, protocol) {
 
 async function withImapClient(payload, fn) {
 	const imap = payload.imap;
+	const mode = 'imapflow';
 	const client = new ImapFlow({
 		host: imap.host,
 		port: Number(imap.port || 993),
@@ -347,11 +389,20 @@ async function withImapClient(payload, fn) {
 		logger: false
 	});
 
+	client.on('error', error => {
+		logSyncError('imap_client_error', error, payload, { mode });
+	});
+
+	logSyncEvent('imap_stage', payload, { mode, stage: 'connect_start' });
 	await client.connect();
+	logSyncEvent('imap_stage', payload, { mode, stage: 'connect_ok' });
 	try {
 		return await fn(client);
 	} finally {
-		await client.logout().catch(() => {});
+		logSyncEvent('imap_stage', payload, { mode, stage: 'logout_start' });
+		await client.logout()
+			.then(() => logSyncEvent('imap_stage', payload, { mode, stage: 'logout_ok' }))
+			.catch(error => logSyncError('imap_logout_error', error, payload, { mode }));
 	}
 }
 
@@ -360,7 +411,9 @@ async function testImap(payload) {
 		return testRawImap(payload);
 	}
 	return withImapClient(payload, async (client) => {
+		logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'open_start', mailbox: payload.imap.mailbox || 'INBOX' });
 		const mailbox = await client.mailboxOpen(payload.imap.mailbox || 'INBOX');
+		logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'open_ok', mailbox: mailbox.path, total: mailbox.exists });
 		return {
 			success: true,
 			protocol: 'IMAP',
@@ -379,22 +432,27 @@ async function fetchImap(payload) {
 	const result = { success: true, total: 0, fetched: 0, skipped: 0, errors: [] };
 
 	await withImapClient(payload, async (client) => {
+		logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'open_start', mailbox: payload.imap.mailbox || 'INBOX' });
 		const mailbox = await client.mailboxOpen(payload.imap.mailbox || 'INBOX');
 		result.total = mailbox.exists;
 		const start = limit > 0 ? Math.max(1, mailbox.exists - limit + 1) : 1;
 		const range = `${start}:*`;
 		const messages = [];
+		logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'fetch_start', mailbox: mailbox.path, total: mailbox.exists, range });
 
 		for await (const message of client.fetch(range, { uid: true, envelope: true, source: true })) {
 			messages.push(message);
 		}
+		logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'fetch_ok', mailbox: mailbox.path, messageCount: messages.length });
 
 		for (const message of messages.sort((a, b) => Number(a.uid) - Number(b.uid))) {
 			const uid = String(message.uid);
 			if (known.has(uid)) {
 				result.skipped += 1;
+				logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'ingest_skip_known', uid });
 				continue;
 			}
+			logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'ingest_start', uid, sourceBytes: message.source?.length || 0 });
 			await ingestRawMail({
 				externalAccountId: payload.externalAccountId,
 				protocol: 'IMAP',
@@ -405,6 +463,7 @@ async function fetchImap(payload) {
 				raw: Buffer.from(message.source).toString('base64')
 			});
 			result.fetched += 1;
+			logSyncEvent('imap_stage', payload, { mode: 'imapflow', stage: 'ingest_ok', uid });
 		}
 	});
 
@@ -414,8 +473,12 @@ async function fetchImap(payload) {
 async function testRawImap(payload) {
 	const client = new RawImapClient(payload);
 	try {
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'connect_start' });
 		await client.connect();
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'connect_ok' });
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'login_select_start', mailbox: payload.imap.mailbox || 'INBOX' });
 		const total = await client.loginAndSelect();
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'login_select_ok', mailbox: payload.imap.mailbox || 'INBOX', total });
 		return {
 			success: true,
 			protocol: 'IMAP',
@@ -423,7 +486,9 @@ async function testRawImap(payload) {
 			mailbox: payload.imap.mailbox || 'INBOX'
 		};
 	} finally {
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'logout_start' });
 		await client.logout();
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'logout_done' });
 	}
 }
 
@@ -434,23 +499,40 @@ async function fetchRawImap(payload) {
 	const client = new RawImapClient(payload);
 
 	try {
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'connect_start' });
 		await client.connect();
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'connect_ok' });
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'login_select_start', mailbox: payload.imap.mailbox || 'INBOX' });
 		result.total = await client.loginAndSelect();
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'login_select_ok', mailbox: payload.imap.mailbox || 'INBOX', total: result.total });
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'search_start' });
 		const search = await client.command('UID SEARCH ALL');
 		const uids = parseSearchUids(search.lines);
 		const targetUids = limit > 0 ? uids.slice(-limit) : uids;
+		logSyncEvent('imap_stage', payload, {
+			mode: 'raw-proxy',
+			stage: 'search_ok',
+			uidCount: uids.length,
+			targetCount: targetUids.length,
+			firstUid: targetUids[0],
+			lastUid: targetUids[targetUids.length - 1]
+		});
 
 		for (const uid of targetUids) {
 			if (known.has(uid)) {
 				result.skipped += 1;
+				logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'ingest_skip_known', uid });
 				continue;
 			}
+			logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'fetch_uid_start', uid });
 			const response = await client.command(`UID FETCH ${uid} (UID RFC822.SIZE BODY.PEEK[])`);
 			const body = response.literals[0]?.literal;
 			if (!body) {
 				result.errors.push({ uid, error: 'IMAP_EMPTY_MESSAGE' });
+				logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'fetch_uid_empty', uid });
 				continue;
 			}
+			logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'ingest_start', uid, sourceBytes: body.length });
 			await ingestRawMail({
 				externalAccountId: payload.externalAccountId,
 				protocol: 'IMAP',
@@ -461,9 +543,12 @@ async function fetchRawImap(payload) {
 				raw: body.toString('base64')
 			});
 			result.fetched += 1;
+			logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'ingest_ok', uid });
 		}
 	} finally {
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'logout_start' });
 		await client.logout();
+		logSyncEvent('imap_stage', payload, { mode: 'raw-proxy', stage: 'logout_done' });
 	}
 
 	return result;
@@ -514,11 +599,13 @@ function readMulti(socket, timeout = 30000) {
 }
 
 async function popCommand(socket, command, multi = false) {
+	logSyncEvent('pop3_stage', socket.__syncPayload || {}, { stage: 'command_start', command: command.split(/\s+/)[0], multi });
 	socket.write(`${command}\r\n`, 'binary');
 	const data = multi ? await readMulti(socket) : await readLine(socket);
 	if (!data.startsWith('+OK')) {
 		throw new Error(data);
 	}
+	logSyncEvent('pop3_stage', socket.__syncPayload || {}, { stage: 'command_ok', command: command.split(/\s+/)[0], multi, firstLine: data.split('\r\n')[0] });
 	return data;
 }
 
@@ -533,15 +620,20 @@ async function withPop3Socket(payload, fn) {
 			socket: socket || undefined,
 			servername: pop3.host
 		});
+	conn.__syncPayload = payload;
 
-	await readLine(conn);
+	logSyncEvent('pop3_stage', payload, { stage: 'greeting_start' });
+	const greeting = await readLine(conn);
+	logSyncEvent('pop3_stage', payload, { stage: 'greeting_ok', greeting });
 	await popCommand(conn, `USER ${pop3.username}`);
 	await popCommand(conn, `PASS ${pop3.password}`);
 
 	try {
 		return await fn(conn);
 	} finally {
+		logSyncEvent('pop3_stage', payload, { stage: 'quit_start' });
 		await popCommand(conn, 'QUIT').catch(() => {});
+		logSyncEvent('pop3_stage', payload, { stage: 'quit_done' });
 		conn.end();
 	}
 }
@@ -550,6 +642,7 @@ async function testPop3(payload) {
 	return withPop3Socket(payload, async (socket) => {
 		const stat = await popCommand(socket, 'STAT');
 		const [, total] = stat.split(/\s+/);
+		logSyncEvent('pop3_stage', payload, { stage: 'stat_ok', total: Number(total || 0), stat });
 		await popCommand(socket, 'UIDL', true);
 		return {
 			success: true,
@@ -568,6 +661,7 @@ async function fetchPop3(payload) {
 		const stat = await popCommand(socket, 'STAT');
 		const [, total] = stat.split(/\s+/);
 		result.total = Number(total || 0);
+		logSyncEvent('pop3_stage', payload, { stage: 'stat_ok', total: result.total, stat });
 		const uidlResp = await popCommand(socket, 'UIDL', true);
 		const uidls = uidlResp.split('\r\n')
 			.slice(1)
@@ -576,13 +670,23 @@ async function fetchPop3(payload) {
 			.map(([index, uidl]) => ({ index: Number(index), uidl }));
 
 		const targetUidls = limit > 0 ? uidls.slice(-limit) : uidls;
+		logSyncEvent('pop3_stage', payload, {
+			stage: 'uidl_ok',
+			uidlCount: uidls.length,
+			targetCount: targetUidls.length,
+			firstIndex: targetUidls[0]?.index,
+			lastIndex: targetUidls[targetUidls.length - 1]?.index
+		});
 		for (const item of targetUidls) {
 			if (known.has(item.uidl)) {
 				result.skipped += 1;
+				logSyncEvent('pop3_stage', payload, { stage: 'ingest_skip_known', index: item.index, uidl: item.uidl });
 				continue;
 			}
+			logSyncEvent('pop3_stage', payload, { stage: 'retr_start', index: item.index, uidl: item.uidl });
 			const rawResp = await popCommand(socket, `RETR ${item.index}`, true);
 			const raw = rawResp.split('\r\n').slice(1).join('\r\n');
+			logSyncEvent('pop3_stage', payload, { stage: 'ingest_start', index: item.index, uidl: item.uidl, sourceBytes: Buffer.byteLength(raw, 'binary') });
 			await ingestRawMail({
 				externalAccountId: payload.externalAccountId,
 				protocol: 'POP3',
@@ -593,6 +697,7 @@ async function fetchPop3(payload) {
 				raw: Buffer.from(raw, 'binary').toString('base64')
 			});
 			result.fetched += 1;
+			logSyncEvent('pop3_stage', payload, { stage: 'ingest_ok', index: item.index, uidl: item.uidl });
 		}
 	});
 
@@ -666,7 +771,7 @@ const server = http.createServer(async (req, res) => {
 			return;
 		}
 		const code = mapError(error, protocol);
-		console.warn(JSON.stringify({ code, protocol, externalAccountId: payload.externalAccountId }));
+		logSyncError('sync_error', error, payload, { code, path: url.pathname });
 		safeJson(res, 500, { success: false, error: code, message: code });
 		logRequest(500, { protocol, externalAccountId: payload.externalAccountId, error: code });
 	}
