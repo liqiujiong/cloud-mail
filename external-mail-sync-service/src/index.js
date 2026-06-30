@@ -9,6 +9,8 @@ const MAX_LIMIT = 100;
 const IMAP_CONNECTION_TIMEOUT = Number(process.env.IMAP_CONNECTION_TIMEOUT || 15000);
 const IMAP_GREETING_TIMEOUT = Number(process.env.IMAP_GREETING_TIMEOUT || 10000);
 const IMAP_SOCKET_TIMEOUT = Number(process.env.IMAP_SOCKET_TIMEOUT || 30000);
+const IMAP_PROBE_TIMEOUT = Number(process.env.IMAP_PROBE_TIMEOUT || 2000);
+const imapModeCache = new Map();
 
 function assertInternalToken(req) {
 	const token = req.headers['x-internal-token'];
@@ -71,6 +73,230 @@ async function createSocksSocket(proxy, host, port) {
 	return result.socket;
 }
 
+function imapCacheKey(payload) {
+	const imap = payload.imap;
+	return `${imap.secure !== false ? 'ssl' : 'plain'}://${imap.host}:${Number(imap.port || 993)}`;
+}
+
+function quoteImapString(value) {
+	return `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+async function createPlainImapSocket(payload, timeout = IMAP_SOCKET_TIMEOUT) {
+	const imap = payload.imap;
+	const socket = await createSocksSocket(payload.proxy, imap.host, imap.port)
+		|| net.connect(Number(imap.port || 143), imap.host);
+	socket.setTimeout(timeout);
+	return socket;
+}
+
+async function readProbeBanner(payload) {
+	const socket = await createPlainImapSocket(payload, IMAP_PROBE_TIMEOUT);
+	try {
+		return await new Promise((resolve, reject) => {
+			let buffer = '';
+			const timer = setTimeout(() => reject(new Error('IMAP_PROBE_TIMEOUT')), IMAP_PROBE_TIMEOUT);
+			const cleanup = () => {
+				clearTimeout(timer);
+				socket.off('data', onData);
+				socket.off('error', onError);
+				socket.off('timeout', onTimeout);
+			};
+			const onData = (chunk) => {
+				buffer += chunk.toString('utf8');
+				const index = buffer.indexOf('\r\n');
+				if (index >= 0) {
+					cleanup();
+					resolve(buffer.slice(0, index));
+				}
+			};
+			const onError = (error) => {
+				cleanup();
+				reject(error);
+			};
+			const onTimeout = () => {
+				cleanup();
+				reject(new Error('IMAP_PROBE_TIMEOUT'));
+			};
+			socket.on('data', onData);
+			socket.once('error', onError);
+			socket.once('timeout', onTimeout);
+		});
+	} finally {
+		socket.destroy();
+	}
+}
+
+async function resolveImapMode(payload) {
+	if (payload.imap?.secure !== false) {
+		return 'imapflow';
+	}
+	const key = imapCacheKey(payload);
+	const cached = imapModeCache.get(key);
+	if (cached) {
+		return cached;
+	}
+	let mode = 'imapflow';
+	try {
+		const banner = await readProbeBanner(payload);
+		if (/proxy ready/i.test(banner)) {
+			mode = 'raw-proxy';
+		}
+	} catch {
+		mode = 'imapflow';
+	}
+	imapModeCache.set(key, mode);
+	return mode;
+}
+
+class RawImapClient {
+	constructor(payload) {
+		this.payload = payload;
+		this.socket = null;
+		this.buffer = Buffer.alloc(0);
+		this.tagNum = 1;
+	}
+
+	async connect() {
+		this.socket = await createPlainImapSocket(this.payload);
+		this.socket.on('data', chunk => {
+			this.buffer = Buffer.concat([this.buffer, chunk]);
+		});
+		await this.readLine();
+	}
+
+	nextTag() {
+		return `A${String(this.tagNum++).padStart(3, '0')}`;
+	}
+
+	write(tag, command) {
+		this.socket.write(`${tag} ${command}\r\n`, 'binary');
+	}
+
+	async waitForBuffer(predicate, timeout = IMAP_SOCKET_TIMEOUT) {
+		if (predicate()) {
+			return;
+		}
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => cleanup(new Error('IMAP_TIMEOUT')), timeout);
+			const cleanup = (error) => {
+				clearTimeout(timer);
+				this.socket.off('data', onData);
+				this.socket.off('error', onError);
+				this.socket.off('timeout', onTimeout);
+				error ? reject(error) : resolve();
+			};
+			const onData = () => {
+				if (predicate()) {
+					cleanup();
+				}
+			};
+			const onError = (error) => cleanup(error);
+			const onTimeout = () => cleanup(new Error('IMAP_TIMEOUT'));
+			this.socket.on('data', onData);
+			this.socket.once('error', onError);
+			this.socket.once('timeout', onTimeout);
+		});
+	}
+
+	async readLine() {
+		await this.waitForBuffer(() => this.buffer.indexOf('\r\n') >= 0);
+		const index = this.buffer.indexOf('\r\n');
+		const line = this.buffer.slice(0, index).toString('utf8');
+		this.buffer = this.buffer.slice(index + 2);
+		return line;
+	}
+
+	async readBytes(length) {
+		await this.waitForBuffer(() => this.buffer.length >= length);
+		const data = this.buffer.slice(0, length);
+		this.buffer = this.buffer.slice(length);
+		return data;
+	}
+
+	async readResponseItem() {
+		const line = await this.readLine();
+		const literalMatch = line.match(/\{(\d+)\}$/);
+		if (!literalMatch) {
+			return { line };
+		}
+		return {
+			line,
+			literal: await this.readBytes(Number(literalMatch[1]))
+		};
+	}
+
+	async readTagged(tag) {
+		const lines = [];
+		const literals = [];
+		while (true) {
+			const item = await this.readResponseItem();
+			lines.push(item.line);
+			if (item.literal) {
+				literals.push(item);
+			}
+			if (item.line.startsWith(`${tag} OK`)) {
+				return { lines, literals };
+			}
+			if (item.line.startsWith(`${tag} NO`) || item.line.startsWith(`${tag} BAD`)) {
+				throw new Error(item.line);
+			}
+		}
+	}
+
+	async command(command) {
+		const tag = this.nextTag();
+		this.write(tag, command);
+		return this.readTagged(tag);
+	}
+
+	async loginAndSelect() {
+		const loginTag = this.nextTag();
+		const selectTag = this.nextTag();
+		this.write(loginTag, `LOGIN ${quoteImapString(this.payload.imap.username)} ${quoteImapString(this.payload.imap.password)}`);
+		while (true) {
+			const item = await this.readResponseItem();
+			if (item.line.startsWith(`${loginTag} OK`)) {
+				break;
+			}
+			if (item.line.startsWith(`${loginTag} NO`) || item.line.startsWith(`${loginTag} BAD`)) {
+				throw new Error(item.line);
+			}
+			if (/^\* OK .*Dovecot/i.test(item.line) || /^\* OK .*CAPABILITY/i.test(item.line)) {
+				break;
+			}
+		}
+		this.write(selectTag, `SELECT ${quoteImapString(this.payload.imap.mailbox || 'INBOX')}`);
+		const response = await this.readTagged(selectTag);
+		return Number((response.lines.join('\n').match(/\* (\d+) EXISTS/) || [])[1] || 0);
+	}
+
+	async logout() {
+		if (!this.socket) {
+			return;
+		}
+		try {
+			await this.command('LOGOUT');
+		} catch {
+		}
+		this.socket.destroy();
+	}
+}
+
+function parseSearchUids(lines) {
+	const searchLine = lines.find(line => line.startsWith('* SEARCH')) || '';
+	return searchLine.replace(/^\* SEARCH\s*/, '')
+		.split(/\s+/)
+		.map(item => item.trim())
+		.filter(Boolean);
+}
+
+function messageIdFromRaw(raw) {
+	const text = raw.toString('utf8');
+	const match = text.match(/^Message-ID:\s*(.+)$/im);
+	return match ? match[1].trim() : '';
+}
+
 function mapError(error, protocol) {
 	const message = error?.message || 'UNKNOWN_ERROR';
 	if (/auth|login|password|credentials/i.test(message)) {
@@ -116,6 +342,9 @@ async function withImapClient(payload, fn) {
 }
 
 async function testImap(payload) {
+	if (await resolveImapMode(payload) === 'raw-proxy') {
+		return testRawImap(payload);
+	}
 	return withImapClient(payload, async (client) => {
 		const mailbox = await client.mailboxOpen(payload.imap.mailbox || 'INBOX');
 		return {
@@ -128,6 +357,9 @@ async function testImap(payload) {
 }
 
 async function fetchImap(payload) {
+	if (await resolveImapMode(payload) === 'raw-proxy') {
+		return fetchRawImap(payload);
+	}
 	const known = new Set((payload.knownUids || []).map(String));
 	const limit = normalizeLimit(payload.limit);
 	const result = { success: true, total: 0, fetched: 0, skipped: 0, errors: [] };
@@ -161,6 +393,64 @@ async function fetchImap(payload) {
 			result.fetched += 1;
 		}
 	});
+
+	return result;
+}
+
+async function testRawImap(payload) {
+	const client = new RawImapClient(payload);
+	try {
+		await client.connect();
+		const total = await client.loginAndSelect();
+		return {
+			success: true,
+			protocol: 'IMAP',
+			total,
+			mailbox: payload.imap.mailbox || 'INBOX'
+		};
+	} finally {
+		await client.logout();
+	}
+}
+
+async function fetchRawImap(payload) {
+	const known = new Set((payload.knownUids || []).map(String));
+	const limit = normalizeLimit(payload.limit);
+	const result = { success: true, total: 0, fetched: 0, skipped: 0, errors: [] };
+	const client = new RawImapClient(payload);
+
+	try {
+		await client.connect();
+		result.total = await client.loginAndSelect();
+		const search = await client.command('UID SEARCH ALL');
+		const uids = parseSearchUids(search.lines);
+		const targetUids = limit > 0 ? uids.slice(-limit) : uids;
+
+		for (const uid of targetUids) {
+			if (known.has(uid)) {
+				result.skipped += 1;
+				continue;
+			}
+			const response = await client.command(`UID FETCH ${uid} (UID RFC822.SIZE BODY.PEEK[])`);
+			const body = response.literals[0]?.literal;
+			if (!body) {
+				result.errors.push({ uid, error: 'IMAP_EMPTY_MESSAGE' });
+				continue;
+			}
+			await ingestRawMail({
+				externalAccountId: payload.externalAccountId,
+				protocol: 'IMAP',
+				mailbox: payload.imap.mailbox || 'INBOX',
+				uid,
+				uidl: '',
+				messageId: messageIdFromRaw(body),
+				raw: body.toString('base64')
+			});
+			result.fetched += 1;
+		}
+	} finally {
+		await client.logout();
+	}
 
 	return result;
 }
