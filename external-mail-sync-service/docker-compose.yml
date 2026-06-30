@@ -1,0 +1,18 @@
+services:
+  external-mail-sync:
+    build:
+      context: .
+    image: ${IMAGE_NAME:-cloud-mail-external-sync}:${IMAGE_TAG:-latest}
+    container_name: ${CONTAINER_NAME:-cloud-mail-external-sync}
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:8788"
+      - "${ALT_HTTP_PORT:-8080}:8788"
+    environment:
+      PORT: 8788
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:?INTERNAL_TOKEN is required}
+      WORKER_BASE_URL: ${WORKER_BASE_URL:?WORKER_BASE_URL is required}
+      IMAP_CONNECTION_TIMEOUT: ${IMAP_CONNECTION_TIMEOUT:-15000}
+      IMAP_GREETING_TIMEOUT: ${IMAP_GREETING_TIMEOUT:-10000}
+      IMAP_SOCKET_TIMEOUT: ${IMAP_SOCKET_TIMEOUT:-30000}
+      IMAP_PROBE_TIMEOUT: ${IMAP_PROBE_TIMEOUT:-2000}
