@@ -43,7 +43,8 @@ export const emailConst = {
 	sourceType: {
 		CLOUDFLARE_ROUTING: 'cloudflare_routing',
 		EXTERNAL_IMAP: 'external_imap',
-		EXTERNAL_POP3: 'external_pop3'
+		EXTERNAL_POP3: 'external_pop3',
+		EXTERNAL_MICROSOFT_GRAPH: 'external_microsoft_graph'
 	},
 	status:  {
 		RECEIVE: 0,
@@ -65,7 +66,8 @@ export const emailConst = {
 export const externalAccountConst = {
 	protocol: {
 		IMAP: 'IMAP',
-		POP3: 'POP3'
+		POP3: 'POP3',
+		MICROSOFT_GRAPH: 'MICROSOFT_GRAPH'
 	},
 	status: {
 		NORMAL: 'normal',

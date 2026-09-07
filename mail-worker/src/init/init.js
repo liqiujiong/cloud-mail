@@ -31,8 +31,26 @@ const dbInit = {
 		await this.v3_0DB(c);
 		await this.v3_1DB(c);
 		await this.v3_2DB(c);
+		await this.v3_3DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async v3_3DB(c) {
+		const sqlList = [
+			`ALTER TABLE external_account ADD COLUMN microsoft_client_id TEXT NOT NULL DEFAULT '';`,
+			`ALTER TABLE external_account ADD COLUMN microsoft_refresh_token TEXT NOT NULL DEFAULT '';`,
+			`ALTER TABLE external_account ADD COLUMN microsoft_delta_link TEXT NOT NULL DEFAULT '';`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_mail_uid_microsoft_graph ON external_mail_uid(external_account_id, uid) WHERE protocol = 'MICROSOFT_GRAPH'`
+		];
+
+		for (const sql of sqlList) {
+			try {
+				await c.env.db.prepare(sql).run();
+			} catch (e) {
+				console.warn(`跳过字段：${e.message}`);
+			}
+		}
 	},
 
 	async v3_2DB(c) {
@@ -54,6 +72,9 @@ const dbInit = {
 				pop_secure INTEGER NOT NULL DEFAULT 1,
 				username TEXT NOT NULL,
 				password_encrypted TEXT NOT NULL,
+				microsoft_client_id TEXT NOT NULL DEFAULT '',
+				microsoft_refresh_token TEXT NOT NULL DEFAULT '',
+				microsoft_delta_link TEXT NOT NULL DEFAULT '',
 				proxy_type TEXT NOT NULL DEFAULT 'SOCKS5',
 				proxy_host TEXT NOT NULL DEFAULT '',
 				proxy_port INTEGER NOT NULL DEFAULT 0,
@@ -84,6 +105,7 @@ const dbInit = {
 			)`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_mail_uid_imap ON external_mail_uid(external_account_id, mailbox, uid) WHERE protocol = 'IMAP'`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_mail_uid_pop3 ON external_mail_uid(external_account_id, uidl) WHERE protocol = 'POP3'`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_mail_uid_microsoft_graph ON external_mail_uid(external_account_id, uid) WHERE protocol = 'MICROSOFT_GRAPH'`,
 			`CREATE INDEX IF NOT EXISTS idx_external_account_user_id ON external_account(user_id, is_del)`,
 			`CREATE INDEX IF NOT EXISTS idx_external_account_del_id ON external_account(is_del, external_account_id DESC)`,
 			`ALTER TABLE email ADD COLUMN source_type TEXT NOT NULL DEFAULT 'cloudflare_routing';`,

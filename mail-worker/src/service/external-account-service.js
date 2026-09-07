@@ -10,6 +10,7 @@ import mailReceiveService from './mail-receive-service';
 import settingService from './setting-service';
 import userService from './user-service';
 import roleService from './role-service';
+import microsoftGraphMailService from './microsoft-graph-mail-service';
 import dayjs from 'dayjs';
 
 const LOCK_MINUTES = 30;
@@ -43,8 +44,11 @@ function sanitize(row) {
 	const data = { ...row };
 	delete data.passwordEncrypted;
 	delete data.proxyPasswordEncrypted;
+	delete data.microsoftRefreshToken;
+	delete data.microsoftDeltaLink;
 	data.hasPassword = row.passwordEncrypted ? 1 : 0;
 	data.hasProxyPassword = row.proxyPasswordEncrypted ? 1 : 0;
+	data.hasMicrosoftRefreshToken = row.microsoftRefreshToken ? 1 : 0;
 	return data;
 }
 
@@ -56,9 +60,14 @@ async function sanitizeWithSecrets(c, row) {
 }
 
 function sourceTypeByProtocol(protocol) {
-	return normalizeProtocol(protocol) === externalAccountConst.protocol.POP3
-		? emailConst.sourceType.EXTERNAL_POP3
-		: emailConst.sourceType.EXTERNAL_IMAP;
+	const normalized = normalizeProtocol(protocol);
+	if (normalized === externalAccountConst.protocol.POP3) {
+		return emailConst.sourceType.EXTERNAL_POP3;
+	}
+	if (normalized === externalAccountConst.protocol.MICROSOFT_GRAPH) {
+		return emailConst.sourceType.EXTERNAL_MICROSOFT_GRAPH;
+	}
+	return emailConst.sourceType.EXTERNAL_IMAP;
 }
 
 async function toNodePayload(c, row, limit) {
@@ -257,10 +266,14 @@ const externalAccountService = {
 
 	async add(c, params, userId) {
 		const protocol = normalizeProtocol(params.protocol);
-		if (![externalAccountConst.protocol.IMAP, externalAccountConst.protocol.POP3].includes(protocol)) {
-			throw new BizError('Protocol must be IMAP or POP3');
+		if (![externalAccountConst.protocol.IMAP, externalAccountConst.protocol.POP3, externalAccountConst.protocol.MICROSOFT_GRAPH].includes(protocol)) {
+			throw new BizError('Protocol must be IMAP, POP3 or MICROSOFT_GRAPH');
 		}
-		if (!params.password) {
+		if (protocol === externalAccountConst.protocol.MICROSOFT_GRAPH) {
+			if (!params.microsoftClientId || !params.microsoftRefreshToken) {
+				throw new BizError('Microsoft Client ID and OAuth refresh token are required');
+			}
+		} else if (!params.password) {
 			throw new BizError('Password is required');
 		}
 		await this.checkDuplicate(c, params.email, userId);
@@ -310,12 +323,31 @@ const externalAccountService = {
 		const row = await this.detail(c, params.externalAccountId, userId);
 		await this.checkDuplicate(c, params.email, row.userId, row.externalAccountId);
 		const data = await this.toSaveData(c, params, row.userId, row);
+		if (data.protocol === externalAccountConst.protocol.MICROSOFT_GRAPH && (!data.microsoftClientId || !data.microsoftRefreshToken)) {
+			throw new BizError('Microsoft Client ID and OAuth refresh token are required');
+		}
+		if (data.protocol !== externalAccountConst.protocol.MICROSOFT_GRAPH && !data.passwordEncrypted) {
+			throw new BizError('Password is required');
+		}
 		data.updateTime = dayjs().format('YYYY-MM-DD HH:mm:ss');
 		await orm(c).update(externalAccount).set(data).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
 		return sanitize(await this.detail(c, row.externalAccountId, row.userId));
 	},
 
 	async toSaveData(c, params, userId, oldRow = null) {
+		const protocol = normalizeProtocol(params.protocol);
+		const microsoftClientId = params.microsoftClientId !== undefined
+			? String(params.microsoftClientId || '').trim()
+			: (oldRow?.microsoftClientId || '');
+		const microsoftRefreshToken = params.microsoftRefreshToken
+			? String(params.microsoftRefreshToken).trim()
+			: (oldRow?.microsoftRefreshToken || '');
+		const microsoftCredentialsChanged = oldRow && (
+			microsoftClientId !== oldRow.microsoftClientId
+			|| microsoftRefreshToken !== oldRow.microsoftRefreshToken
+			|| protocol !== oldRow.protocol
+			|| String(params.email || '').trim().toLowerCase() !== String(oldRow.email || '').trim().toLowerCase()
+		);
 		return {
 			userId,
 			name: params.name || params.email,
@@ -324,7 +356,7 @@ const externalAccountService = {
 				? (params.originalEmail || params.email)
 				: (oldRow?.originalEmail || params.email),
 			remark: params.remark || '',
-			protocol: normalizeProtocol(params.protocol),
+			protocol,
 			imapHost: params.imapHost || '',
 			imapPort: Number(params.imapPort || 993),
 			imapSecure: params.imapSecure ? 1 : 0,
@@ -334,6 +366,9 @@ const externalAccountService = {
 			popSecure: params.popSecure ? 1 : 0,
 			username: params.username || params.email,
 			passwordEncrypted: params.password ? await secretCryptoUtils.encrypt(c, params.password) : (oldRow?.passwordEncrypted || ''),
+			microsoftClientId,
+			microsoftRefreshToken,
+			microsoftDeltaLink: microsoftCredentialsChanged ? '' : (oldRow?.microsoftDeltaLink || ''),
 			proxyType: 'SOCKS5',
 			proxyHost: params.proxyHost || '',
 			proxyPort: Number(params.proxyPort || 0),
@@ -420,6 +455,10 @@ const externalAccountService = {
 			.all();
 		const lines = [];
 		for (const row of rows) {
+			if (normalizeProtocol(row.protocol) === externalAccountConst.protocol.MICROSOFT_GRAPH) {
+				lines.push([row.microsoftClientId, row.email, row.microsoftRefreshToken].join(','));
+				continue;
+			}
 			const password = await secretCryptoUtils.decrypt(c, row.passwordEncrypted);
 			const proxyPassword = await secretCryptoUtils.decrypt(c, row.proxyPasswordEncrypted);
 			let proxy = '';
@@ -444,8 +483,23 @@ const externalAccountService = {
 		const row = params.externalAccountId
 			? await this.detail(c, params.externalAccountId, userId, { allowShared: true })
 			: { ...(await this.toSaveData(c, params, userId)), externalAccountId: 0 };
-		const payload = await toNodePayload(c, row, 1);
-		const data = await callSyncService(c, '/sync/test', payload);
+		let data;
+		if (normalizeProtocol(row.protocol) === externalAccountConst.protocol.MICROSOFT_GRAPH) {
+			const auth = await microsoftGraphMailService.authenticate(row);
+			data = await microsoftGraphMailService.testConnection(row, auth.accessToken);
+			if (!row.externalAccountId && auth.refreshToken !== row.microsoftRefreshToken) {
+				data.microsoftRefreshToken = auth.refreshToken;
+			}
+			if (row.externalAccountId && auth.refreshToken !== row.microsoftRefreshToken) {
+				await orm(c).update(externalAccount).set({
+					microsoftRefreshToken: auth.refreshToken,
+					updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+				}).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
+			}
+		} else {
+			const payload = await toNodePayload(c, row, 1);
+			data = await callSyncService(c, '/sync/test', payload);
+		}
 		if (row.externalAccountId) {
 			await orm(c).update(externalAccount).set({
 				status: externalAccountConst.status.NORMAL,
@@ -476,11 +530,17 @@ const externalAccountService = {
 		try {
 			const requestedLimit = Number(params.limit ?? 5);
 			const limit = requestedLimit <= 0 ? 0 : Math.min(requestedLimit, 20);
-			const payload = await toNodePayload(c, row, limit);
-			const data = await callSyncService(c, '/sync/fetch', payload);
+			let data;
+			if (normalizeProtocol(row.protocol) === externalAccountConst.protocol.MICROSOFT_GRAPH) {
+				data = await this.syncMicrosoftGraph(c, row, limit);
+			} else {
+				const payload = await toNodePayload(c, row, limit);
+				data = await callSyncService(c, '/sync/fetch', payload);
+			}
+			const errorText = data.errors?.length ? `，失败 ${data.errors.length} 封` : '';
 			await this.updateSyncResult(c, row.externalAccountId, {
 				success: true,
-				result: `新增 ${data.fetched || 0} 封，跳过 ${data.skipped || 0} 封。`
+				result: `新增 ${data.fetched || 0} 封，跳过 ${data.skipped || 0} 封${errorText}。`
 			});
 			return data;
 		} catch (e) {
@@ -523,6 +583,102 @@ const externalAccountService = {
 		return rows.map(item => item.uidl);
 	},
 
+	async syncMicrosoftGraph(c, row, limit) {
+		const auth = await microsoftGraphMailService.authenticate(row);
+		if (auth.refreshToken !== row.microsoftRefreshToken) {
+			await orm(c).update(externalAccount).set({
+				microsoftRefreshToken: auth.refreshToken,
+				updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+			}).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
+		}
+
+		const useDeltaLink = limit > 0 ? row.microsoftDeltaLink : '';
+		let messages;
+		let nextDeltaLink;
+		if (useDeltaLink) {
+			try {
+				const changeSet = await microsoftGraphMailService.listInboxChanges(auth.accessToken, useDeltaLink);
+				messages = changeSet.messages;
+				nextDeltaLink = changeSet.deltaLink;
+			} catch (error) {
+				if (error.remoteStatus !== 410) {
+					throw error;
+				}
+				const baseline = await microsoftGraphMailService.listInboxChanges(auth.accessToken);
+				messages = limit > 0
+					? await microsoftGraphMailService.listInboxMessages(auth.accessToken, limit)
+					: baseline.messages;
+				nextDeltaLink = baseline.deltaLink;
+			}
+		} else {
+			const baseline = await microsoftGraphMailService.listInboxChanges(auth.accessToken);
+			messages = limit > 0
+				? await microsoftGraphMailService.listInboxMessages(auth.accessToken, limit)
+				: baseline.messages;
+			nextDeltaLink = baseline.deltaLink;
+		}
+
+		messages = [...new Map(messages.map(message => [message.id, message])).values()];
+
+		const result = {
+			success: true,
+			protocol: externalAccountConst.protocol.MICROSOFT_GRAPH,
+			total: messages.length,
+			fetched: 0,
+			skipped: 0,
+			errors: []
+		};
+		const settings = await settingService.query(c);
+		for (const message of messages) {
+			const graphMessageId = String(message.id || '');
+			const existed = await orm(c).select({ emailId: externalMailUid.emailId }).from(externalMailUid).where(and(
+				eq(externalMailUid.externalAccountId, row.externalAccountId),
+				eq(externalMailUid.protocol, externalAccountConst.protocol.MICROSOFT_GRAPH),
+				eq(externalMailUid.uid, graphMessageId)
+			)).get();
+			if (existed) {
+				result.skipped += 1;
+				continue;
+			}
+			try {
+				const raw = await microsoftGraphMailService.downloadMime(auth.accessToken, graphMessageId);
+				const emailRow = await mailReceiveService.saveRawMail(c, raw, {
+					userId: row.userId,
+					accountId: 0,
+					toEmail: row.email,
+					isDel: isDel.NORMAL,
+					status: emailConst.status.RECEIVE,
+					sourceType: emailConst.sourceType.EXTERNAL_MICROSOFT_GRAPH,
+					externalAccountId: row.externalAccountId,
+					externalUid: graphMessageId,
+					externalMailbox: 'Inbox',
+					messageId: message.internetMessageId || '',
+					syncTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+				}, settings);
+				await orm(c).insert(externalMailUid).values({
+					externalAccountId: row.externalAccountId,
+					protocol: externalAccountConst.protocol.MICROSOFT_GRAPH,
+					mailbox: 'Inbox',
+					uid: graphMessageId,
+					uidl: '',
+					messageId: message.internetMessageId || emailRow.messageId || '',
+					emailId: emailRow.emailId
+				}).run();
+				result.fetched += 1;
+			} catch (error) {
+				result.errors.push({ uid: graphMessageId, error: error.message || 'MICROSOFT_GRAPH_INGEST_FAILED' });
+			}
+		}
+
+		if (result.errors.length === 0) {
+			await orm(c).update(externalAccount).set({
+				microsoftDeltaLink: nextDeltaLink,
+				updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+			}).where(eq(externalAccount.externalAccountId, row.externalAccountId)).run();
+		}
+		return result;
+	},
+
 	async ingest(c, payload) {
 		const row = await orm(c).select().from(externalAccount).where(and(
 			eq(externalAccount.externalAccountId, Number(payload.externalAccountId)),
@@ -543,8 +699,10 @@ const externalAccountService = {
 		if (protocol === externalAccountConst.protocol.IMAP) {
 			existsConditions.push(eq(externalMailUid.mailbox, mailbox));
 			existsConditions.push(eq(externalMailUid.uid, uid));
-		} else {
+		} else if (protocol === externalAccountConst.protocol.POP3) {
 			existsConditions.push(eq(externalMailUid.uidl, uidl));
+		} else {
+			existsConditions.push(eq(externalMailUid.uid, uid));
 		}
 
 		const existed = await orm(c).select().from(externalMailUid).where(and(...existsConditions)).get();
@@ -562,7 +720,7 @@ const externalAccountService = {
 			status: emailConst.status.RECEIVE,
 			sourceType: sourceTypeByProtocol(protocol),
 			externalAccountId: row.externalAccountId,
-			externalUid: protocol === externalAccountConst.protocol.IMAP ? uid : uidl,
+			externalUid: protocol === externalAccountConst.protocol.POP3 ? uidl : uid,
 			externalMailbox: mailbox,
 			messageId: payload.messageId || '',
 			syncTime: dayjs().format('YYYY-MM-DD HH:mm:ss')

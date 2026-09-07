@@ -55,6 +55,7 @@
           <el-option label="Cloudflare" value="cloudflare_routing"/>
           <el-option label="外部 IMAP" value="external_imap"/>
           <el-option label="外部 POP3" value="external_pop3"/>
+          <el-option label="微软 Graph" value="external_microsoft_graph"/>
         </el-select>
         <el-select
             v-model="params.externalAccountId"
@@ -342,7 +343,7 @@ function typeSelectChange() {
 }
 
 function sourceChange() {
-  if (!['external_imap', 'external_pop3'].includes(params.sourceType)) {
+  if (!['external_imap', 'external_pop3', 'external_microsoft_graph'].includes(params.sourceType)) {
     params.externalAccountId = null
   }
   search()

@@ -173,6 +173,7 @@ function sourceText(sourceType) {
   const map = {
     external_imap: '外部 IMAP',
     external_pop3: '外部 POP3',
+    external_microsoft_graph: '微软 Graph',
     cloudflare_routing: 'Cloudflare'
   }
   return map[sourceType] || sourceType

@@ -78,7 +78,7 @@
         <el-table-column label="备注" prop="remark" min-width="150" show-overflow-tooltip/>
         <el-table-column label="协议" width="90">
           <template #default="props">
-            <el-tag :type="props.row.protocol === 'IMAP' ? 'success' : 'warning'">{{ props.row.protocol }}</el-tag>
+            <el-tag :type="protocolTagType(props.row.protocol)">{{ protocolLabel(props.row.protocol) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="服务器" min-width="190">
@@ -156,7 +156,7 @@
           <el-input v-model="form.remark" autocomplete="off"/>
         </el-form-item>
         <el-form-item label="协议">
-          <el-segmented v-model="form.protocol" :options="['IMAP', 'POP3']"/>
+          <el-segmented v-model="form.protocol" :options="protocolOptions"/>
         </el-form-item>
         <template v-if="form.protocol === 'IMAP'">
           <el-form-item label="IMAP Host">
@@ -170,7 +170,7 @@
             <el-input v-model="form.imapMailbox" autocomplete="off"/>
           </el-form-item>
         </template>
-        <template v-else>
+        <template v-else-if="form.protocol === 'POP3'">
           <el-form-item label="POP3 Host">
             <el-input v-model="form.popHost" autocomplete="off" placeholder="输入邮箱地址后自动匹配预设配置"/>
           </el-form-item>
@@ -179,22 +179,38 @@
             <el-checkbox v-model="form.popSecure" class="secure-check">SSL</el-checkbox>
           </el-form-item>
         </template>
-        <el-form-item label="邮箱密码">
-          <el-input v-model="form.password" type="password" show-password autocomplete="new-password"/>
-        </el-form-item>
-        <el-divider>SOCKS5 代理</el-divider>
-        <el-form-item label="代理 Host">
-          <el-input v-model="form.proxyHost" autocomplete="off"/>
-        </el-form-item>
-        <el-form-item label="代理 Port">
-          <el-input-number v-model="form.proxyPort" :min="0" :max="65535"/>
-        </el-form-item>
-        <el-form-item label="代理用户名">
-          <el-input v-model="form.proxyUsername" autocomplete="off"/>
-        </el-form-item>
-        <el-form-item label="代理密码">
-          <el-input v-model="form.proxyPassword" type="password" show-password autocomplete="new-password"/>
-        </el-form-item>
+        <template v-else>
+          <el-form-item label="Client ID">
+            <el-input v-model="form.microsoftClientId" autocomplete="off"/>
+          </el-form-item>
+          <el-form-item label="Refresh Token">
+            <el-input
+                v-model="form.microsoftRefreshToken"
+                type="password"
+                show-password
+                autocomplete="new-password"
+                :placeholder="form.hasMicrosoftRefreshToken ? '已保存，留空保持不变' : ''"
+            />
+          </el-form-item>
+        </template>
+        <template v-if="form.protocol !== 'MICROSOFT_GRAPH'">
+          <el-form-item label="邮箱密码">
+            <el-input v-model="form.password" type="password" show-password autocomplete="new-password"/>
+          </el-form-item>
+          <el-divider>SOCKS5 代理</el-divider>
+          <el-form-item label="代理 Host">
+            <el-input v-model="form.proxyHost" autocomplete="off"/>
+          </el-form-item>
+          <el-form-item label="代理 Port">
+            <el-input-number v-model="form.proxyPort" :min="0" :max="65535"/>
+          </el-form-item>
+          <el-form-item label="代理用户名">
+            <el-input v-model="form.proxyUsername" autocomplete="off"/>
+          </el-form-item>
+          <el-form-item label="代理密码">
+            <el-input v-model="form.proxyPassword" type="password" show-password autocomplete="new-password"/>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="formShow = false">取消</el-button>
@@ -221,13 +237,13 @@
           </label>
           <label class="import-field">
             <span>协议</span>
-            <el-segmented v-model="importForm.protocol" :options="['IMAP', 'POP3']"/>
+            <el-segmented v-model="importForm.protocol" :options="protocolOptions"/>
           </label>
           <label class="import-field" v-if="importForm.protocol === 'IMAP'">
             <span>IMAP Host</span>
             <el-input v-model="importForm.imapHost" autocomplete="off" placeholder="留空按邮箱域名匹配"/>
           </label>
-          <label class="import-field" v-else>
+          <label class="import-field" v-else-if="importForm.protocol === 'POP3'">
             <span>POP3 Host</span>
             <el-input v-model="importForm.popHost" autocomplete="off" placeholder="留空按邮箱域名匹配"/>
           </label>
@@ -238,7 +254,7 @@
               <el-checkbox v-model="importForm.imapSecure">SSL</el-checkbox>
             </div>
           </label>
-          <label class="import-field compact-field" v-else>
+          <label class="import-field compact-field" v-else-if="importForm.protocol === 'POP3'">
             <span>POP3 Port</span>
             <div class="import-port-row">
               <el-input-number v-model="importForm.popPort" :min="1" :max="65535"/>
@@ -262,7 +278,7 @@
               class="import-textarea"
               type="textarea"
               :rows="13"
-              placeholder="user@example.com----应用专用密码----user:pass@gate.example.com:1000&#10;user2@example.com----应用专用密码"
+              :placeholder="importPlaceholder"
           />
           <div class="import-help">支持 “----”、多个横线、Tab、逗号或空白分隔。下一步可把每一列映射到账号字段，不再要求原始文本完全按固定格式。</div>
         </template>
@@ -274,14 +290,14 @@
             <el-table-column label="映射字段" width="230">
               <template #default="props">
                 <el-select v-model="importMappings[props.row.index]" placeholder="选择字段">
-                  <el-option v-for="item in importFieldOptions" :key="item.value" :label="item.label" :value="item.value"/>
+                  <el-option v-for="item in activeImportFieldOptions" :key="item.value" :label="item.label" :value="item.value"/>
                 </el-select>
               </template>
             </el-table-column>
             <el-table-column label="样例值" prop="sample" show-overflow-tooltip/>
           </el-table>
           <div class="mapping-status" :class="{error: !importMappingReady}">
-            {{ importMappingReady ? '映射可用' : '必须映射邮箱和密码字段' }}
+            {{ importMappingReady ? '映射可用' : importMappingErrorText }}
           </div>
         </template>
         <template v-else>
@@ -295,10 +311,14 @@
             <el-table-column label="行" prop="index" width="70"/>
             <el-table-column label="邮箱" prop="email" min-width="210" show-overflow-tooltip/>
             <el-table-column label="原始邮箱" prop="originalEmail" min-width="210" show-overflow-tooltip/>
-            <el-table-column label="密码" width="100">
+            <el-table-column v-if="importForm.protocol === 'MICROSOFT_GRAPH'" label="Client ID" prop="microsoftClientId" min-width="180" show-overflow-tooltip/>
+            <el-table-column v-if="importForm.protocol === 'MICROSOFT_GRAPH'" label="Refresh Token" width="120">
+              <template #default="props">{{ props.row.microsoftRefreshToken ? '已填' : '-' }}</template>
+            </el-table-column>
+            <el-table-column v-if="importForm.protocol !== 'MICROSOFT_GRAPH'" label="密码" width="100">
               <template #default="props">{{ props.row.password ? '已填' : '-' }}</template>
             </el-table-column>
-            <el-table-column label="代理" prop="proxyRaw" min-width="210" show-overflow-tooltip/>
+            <el-table-column v-if="importForm.protocol !== 'MICROSOFT_GRAPH'" label="代理" prop="proxyRaw" min-width="210" show-overflow-tooltip/>
             <el-table-column label="备注" prop="remark" min-width="170" show-overflow-tooltip/>
             <el-table-column label="状态" min-width="180">
               <template #default="props">
@@ -422,18 +442,33 @@ const statusOptions = [
   {label: '风控异常', value: 'security_check_required'}
 ]
 
+const protocolOptions = [
+  {label: 'IMAP', value: 'IMAP'},
+  {label: 'POP3', value: 'POP3'},
+  {label: '微软', value: 'MICROSOFT_GRAPH'}
+]
+
 const importStepOptions = [
   {label: '1. 粘贴文本', value: 1},
   {label: '2. 字段映射', value: 2},
   {label: '3. 预览确认', value: 3}
 ]
 
-const importFieldOptions = [
+const passwordImportFieldOptions = [
   {label: '忽略', value: ''},
   {label: '邮箱 *', value: 'email'},
   {label: '原始邮箱', value: 'originalEmail'},
   {label: '密码 *', value: 'password'},
   {label: 'SOCKS5 代理', value: 'proxy'},
+  {label: '备注', value: 'remark'}
+]
+
+const microsoftImportFieldOptions = [
+  {label: '忽略', value: ''},
+  {label: 'OAuth Client ID *', value: 'microsoftClientId'},
+  {label: '邮箱 *', value: 'email'},
+  {label: 'Refresh Token *', value: 'microsoftRefreshToken'},
+  {label: '原始邮箱', value: 'originalEmail'},
   {label: '备注', value: 'remark'}
 ]
 
@@ -460,6 +495,11 @@ const importMappingRows = computed(() => {
   })
 })
 const importPreviewRows = computed(() => importRawRows.value.map(toImportPreviewRow))
+const isMicrosoftImport = computed(() => importForm.protocol === 'MICROSOFT_GRAPH')
+const activeImportFieldOptions = computed(() => isMicrosoftImport.value ? microsoftImportFieldOptions : passwordImportFieldOptions)
+const importPlaceholder = computed(() => isMicrosoftImport.value
+    ? 'OAuth Client ID,邮箱,OAuth Refresh Token'
+    : 'user@example.com----应用专用密码----user:pass@gate.example.com:1000\nuser2@example.com----应用专用密码')
 const importStats = computed(() => {
   const total = importRawRows.value.length
   const valid = importPreviewRows.value.filter(row => row.valid).length
@@ -469,7 +509,12 @@ const importStats = computed(() => {
     invalid: total - valid
   }
 })
-const importMappingReady = computed(() => importMappings.value.includes('email') && importMappings.value.includes('password'))
+const importMappingReady = computed(() => isMicrosoftImport.value
+    ? ['microsoftClientId', 'email', 'microsoftRefreshToken'].every(field => importMappings.value.includes(field))
+    : importMappings.value.includes('email') && importMappings.value.includes('password'))
+const importMappingErrorText = computed(() => isMicrosoftImport.value
+    ? '必须映射 Client ID、邮箱和 Refresh Token 字段'
+    : '必须映射邮箱和密码字段')
 const canGoNextImportStep = computed(() => {
   if (importStep.value === 1) {
     return importStats.value.total > 0
@@ -529,6 +574,10 @@ loadList()
 watch(() => form.email, fillServerHostByEmail)
 watch(() => form.protocol, fillServerHostByEmail)
 watch(() => importForm.content, syncDefaultImportMappings)
+watch(() => importForm.protocol, () => {
+  importMappings.value = []
+  syncDefaultImportMappings()
+})
 
 function defaultForm() {
   return {
@@ -547,6 +596,9 @@ function defaultForm() {
     popSecure: true,
     username: '',
     password: '',
+    microsoftClientId: '',
+    microsoftRefreshToken: '',
+    hasMicrosoftRefreshToken: 0,
     proxyHost: '',
     proxyPort: 0,
     proxyUsername: '',
@@ -697,12 +749,15 @@ function setIncomingConfig(target, protocol, config) {
 }
 
 function hasManualServerConfig() {
+  if (form.protocol === 'MICROSOFT_GRAPH') {
+    return false
+  }
   const host = form.protocol === 'POP3' ? form.popHost : form.imapHost
   return host.trim() && (autoFilledServer.protocol !== form.protocol || autoFilledServer.host !== host)
 }
 
 function fillServerHostByEmail() {
-  if (form.externalAccountId || hasManualServerConfig()) {
+  if (form.protocol === 'MICROSOFT_GRAPH' || form.externalAccountId || hasManualServerConfig()) {
     return
   }
   const domain = getEmailDomain(form.email)
@@ -757,6 +812,8 @@ function buildFormPayload() {
     popSecure: form.popSecure,
     username: email,
     password: form.password,
+    microsoftClientId: form.microsoftClientId.trim(),
+    microsoftRefreshToken: form.microsoftRefreshToken.trim(),
     proxyHost: form.proxyHost,
     proxyPort: form.proxyPort,
     proxyUsername: form.proxyUsername,
@@ -793,7 +850,9 @@ function parseImportRawRows() {
 
 function syncDefaultImportMappings() {
   const maxColumn = importRawRows.value.reduce((max, row) => Math.max(max, row.columns.length), 0)
-  const defaults = ['email', 'password', 'proxy', 'remark']
+  const defaults = isMicrosoftImport.value
+      ? ['microsoftClientId', 'email', 'microsoftRefreshToken', 'remark']
+      : ['email', 'password', 'proxy', 'remark']
   importMappings.value = Array.from({length: maxColumn}, (_, index) => importMappings.value[index] ?? defaults[index] ?? '')
 }
 
@@ -806,15 +865,21 @@ function toImportPreviewRow(rawRow) {
   const email = importMappedValue(rawRow, 'email')
   const originalEmail = importMappedValue(rawRow, 'originalEmail')
   const password = importMappedValue(rawRow, 'password')
+  const microsoftClientId = importMappedValue(rawRow, 'microsoftClientId')
+  const microsoftRefreshToken = importMappedValue(rawRow, 'microsoftRefreshToken')
   const proxyRaw = importMappedValue(rawRow, 'proxy')
   const remark = importMappedValue(rawRow, 'remark')
   const proxy = parseProxy(proxyRaw)
   let message = '可导入'
   if (!email) {
     message = '缺少邮箱'
-  } else if (!password) {
+  } else if (isMicrosoftImport.value && !microsoftClientId) {
+    message = '缺少 Client ID'
+  } else if (isMicrosoftImport.value && !microsoftRefreshToken) {
+    message = '缺少 Refresh Token'
+  } else if (!isMicrosoftImport.value && !password) {
     message = '缺少密码'
-  } else if (proxyRaw && (!proxy.host || !proxy.port)) {
+  } else if (!isMicrosoftImport.value && proxyRaw && (!proxy.host || !proxy.port)) {
     message = '代理格式错误'
   }
   return {
@@ -822,6 +887,8 @@ function toImportPreviewRow(rawRow) {
     email,
     originalEmail: originalEmail || email,
     password,
+    microsoftClientId,
+    microsoftRefreshToken,
     proxyRaw,
     proxy,
     remark,
@@ -886,6 +953,8 @@ function buildImportPayload(row) {
     popSecure: importForm.popSecure,
     username: row.email,
     password: row.password,
+    microsoftClientId: row.microsoftClientId,
+    microsoftRefreshToken: row.microsoftRefreshToken,
     proxyHost: row.proxy.host,
     proxyPort: row.proxy.port,
     proxyUsername: row.proxy.username,
@@ -949,7 +1018,9 @@ async function saveImport() {
           status: existing.status
         })
         importResult.value.push({email: row.email, success: true, message: '已更新，后台同步中'})
-      } else if (!row.password) {
+      } else if (importForm.protocol === 'MICROSOFT_GRAPH' && (!row.microsoftClientId || !row.microsoftRefreshToken)) {
+        importResult.value.push({email: row.email, success: false, message: '新账号必须填写 Client ID 和 Refresh Token'})
+      } else if (importForm.protocol !== 'MICROSOFT_GRAPH' && !row.password) {
         importResult.value.push({email: row.email, success: false, message: '新账号必须填写密码'})
       } else {
         data = await externalAccountAdd(buildImportPayload(row))
@@ -1054,6 +1125,9 @@ async function saveBatchMark() {
 function testForm() {
   testSaving.value = true
   externalAccountTest(buildFormPayload()).then(data => {
+    if (data?.microsoftRefreshToken) {
+      form.microsoftRefreshToken = data.microsoftRefreshToken
+    }
     ElMessage({message: `连接成功，邮件总数 ${data?.total ?? '-'}`, type: 'success', plain: true})
   }).finally(() => {
     testSaving.value = false
@@ -1165,13 +1239,30 @@ function deleteAccount(row) {
 }
 
 function serverText(row) {
+  if (row.protocol === 'MICROSOFT_GRAPH') {
+    return 'Microsoft Graph'
+  }
   return row.protocol === 'IMAP'
       ? `${row.imapHost}:${row.imapPort}/${row.imapMailbox || 'INBOX'}`
       : `${row.popHost}:${row.popPort}`
 }
 
 function proxyText(row) {
+  if (row.protocol === 'MICROSOFT_GRAPH') {
+    return '-'
+  }
   return row.proxyHost ? `${row.proxyHost}:${row.proxyPort}` : '-'
+}
+
+function protocolLabel(protocol) {
+  return protocol === 'MICROSOFT_GRAPH' ? '微软' : protocol
+}
+
+function protocolTagType(protocol) {
+  if (protocol === 'IMAP') {
+    return 'success'
+  }
+  return protocol === 'MICROSOFT_GRAPH' ? 'primary' : 'warning'
 }
 
 function formatSyncTime(time) {
